@@ -4,14 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GCS Telemetry Dashboard</title>
-    <!-- Tailwind CSS for styling -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Chart.js for graphing -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- JSZip to handle zip files -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <!-- PapaParse to parse CSV files -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <!-- Tailwind CSS for styling --><script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js for graphing --><script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- JSZip to handle zip files --><script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- PapaParse to parse CSV files --><script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <style>
         /* Custom styles to ensure a no-scroll, full-height layout */
         body, html {
@@ -117,34 +113,29 @@
             transition: transform 1s linear;
         }
     </style>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 </head>
 <body>
-    <!-- Drag and Drop Overlay -->
-    <div id="drag-drop-overlay" class="hidden fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center pointer-events-none z-50 transition-opacity duration-300">
+    <!-- Drag and Drop Overlay --><div id="drag-drop-overlay" class="hidden fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center pointer-events-none z-50 transition-opacity duration-300">
         <div id="overlay-text" class="text-white text-xl font-bold border-4 border-dashed border-white rounded-lg p-12 text-center">
             Drop ZIP or CSV File Anywhere
         </div>
     </div>
     
-    <!-- Chart Modal -->
-    <div id="chart-modal" class="hidden fixed inset-0 bg-black bg-opacity-85 flex justify-center items-center z-50 p-8 cursor-pointer">
+    <!-- Chart Modal --><div id="chart-modal" class="hidden fixed inset-0 bg-black bg-opacity-85 flex justify-center items-center z-50 p-8 cursor-pointer">
         <div class="bg-gray-800 rounded-lg p-4 w-full h-full max-w-6xl max-h-4xl relative cursor-default flex flex-col gap-2">
-            <!-- Modal Header -->
-            <div class="flex justify-between items-center flex-shrink-0">
+            <!-- Modal Header --><div class="flex justify-between items-center flex-shrink-0">
                 <h2 id="modal-title" class="text-lg font-bold text-white">Chart Title</h2>
                  <button id="modal-close-btn" class="text-white text-3xl font-bold hover:text-gray-400 transition-colors">&times;</button>
             </div>
-            <!-- Modal Body -->
-            <div class="w-full h-full flex-grow min-h-0">
+            <!-- Modal Body --><div class="w-full h-full flex-grow min-h-0">
                 <canvas id="modal-canvas"></canvas>
             </div>
         </div>
     </div>
 
-    <!-- Main container for the entire layout -->
-    <div class="main-container">
-        <!-- Left panel for videos -->
-        <div class="left-panel">
+    <!-- Main container for the entire layout --><div class="main-container">
+        <!-- Left panel for videos --><div class="left-panel">
             <div class="video-container" id="video-up-container">
                 <span>Up Video</span>
             </div>
@@ -153,20 +144,17 @@
             </div>
         </div>
 
-        <!-- Right panel for header, charts, and footer -->
-        <div class="right-panel">
+        <!-- Right panel for header, charts, and footer --><div class="right-panel">
             <header class="text-center py-4 bg-gray-800 rounded-lg flex-shrink-0">
                 <h1 class="text-2xl font-bold text-white">TEAM MASSS</h1>
             </header>
             <div class="charts-grid">
-                <!-- Row 1 -->
-                <div class="chart-wrapper"><canvas id="altitude-chart"></canvas></div>
+                <!-- Row 1 --><div class="chart-wrapper"><canvas id="altitude-chart"></canvas></div>
                 <div class="chart-wrapper"><canvas id="velocity-chart"></canvas></div>
                 <div class="chart-wrapper"><canvas id="temp-chart"></canvas></div>
                 <div class="chart-wrapper"><canvas id="voltage-chart"></canvas></div>
                 
-                <!-- Row 2 -->
-                <div class="chart-wrapper">
+                <!-- Row 2 --><div class="chart-wrapper">
                     <canvas id="gyro-chart"></canvas>
                     <div class="chart-controls">
                         <button class="chart-toggle-btn" data-chart="gyro" data-dataset="0">Roll</button>
@@ -189,16 +177,14 @@
                         <button class="chart-toggle-btn" data-chart="rotation" data-dataset="1">AutoGyro2</button>
                     </div>
                 </div>
-                <!-- Tilt Animation -->
-                <div class="chart-wrapper flex flex-col justify-center items-center cursor-default">
+                <!-- Tilt Animation --><div class="chart-wrapper flex flex-col justify-center items-center cursor-default">
                     <div class="w-full h-full flex justify-center items-center">
                          <div class="w-4 h-4/5 bg-blue-500 rounded" id="tilt-indicator"></div>
                     </div>
                 </div>
             </div>
-            <!-- Footer for controls, styled like the header -->
-            <footer class="bg-gray-800 rounded-lg flex-shrink-0 p-2 flex flex-col gap-2">
-                 <div class="flex justify-center items-center gap-4 w-full">
+            <!-- Footer for controls, styled like the header --><footer class="bg-gray-800 rounded-lg flex-shrink-0 p-2 flex flex-col gap-2">
+                 <!-- Row 1: File Operations & Mode --><div class="flex justify-center items-center gap-4 w-full">
                     <button id="upload-btn" class="text-xs flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded-lg transition duration-300 text-center">
                         Upload ZIP File
                     </button>
@@ -216,12 +202,15 @@
                         Mode: Filtered
                     </button>
                 </div>
-                <div class="flex justify-center items-center gap-4 w-full">
+                <!-- Row 2: Playback Controls --><div class="flex justify-center items-center gap-4 w-full">
                     <button id="rewind-btn" class="text-xs flex-1 bg-gray-600 hover:bg-gray-700 text-white font-bold py-1 px-3 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed" disabled>-5s</button>
                     <button id="forward-btn" class="text-xs flex-1 bg-gray-600 hover:bg-gray-700 text-white font-bold py-1 px-3 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed" disabled>+5s</button>
                     <button id="play-pause-btn" class="text-xs flex-1 bg-gray-600 hover:bg-gray-700 text-white font-bold py-1 px-3 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed" disabled>Play</button>
                     <button id="speed-btn" class="text-xs flex-1 bg-gray-600 hover:bg-gray-700 text-white font-bold py-1 px-3 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed" disabled>1x</button>
                     <button id="end-btn" class="text-xs flex-1 bg-gray-600 hover:bg-gray-700 text-white font-bold py-1 px-3 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed" disabled>End</button>
+                </div>
+                <!-- Row 3: Additional Controls (Blink) --><div class="flex justify-center items-center gap-4 w-full">
+                    <button id="blink-btn" class="text-xs flex-1 bg-blue-500 hover:bg-blue-600 text-white font-bold py-1 px-3 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed" disabled>Blink</button>
                 </div>
             </footer>
         </div>
@@ -249,6 +238,9 @@
             const speedBtn = document.getElementById('speed-btn');
             const endBtn = document.getElementById('end-btn');
 
+            // Live buttons
+            const blinkBtn = document.getElementById('blink-btn'); // Added Blink button
+
             // Modal elements
             const chartModal = document.getElementById('chart-modal');
             const modalTitle = document.getElementById('modal-title');
@@ -267,7 +259,7 @@
             let dataDisplayMode = 'filtered'; // 'filtered', 'raw', 'compare'
             
             // EMA Filter function
-            const alpha = 0.85;
+            const alpha = 0.2;
             function emaFilter(data) {
                 if (!data || data.length === 0) return [];
                 const firstVal = typeof data[0] === 'number' ? data[0] : 0;
@@ -281,6 +273,17 @@
                 return filtered;
             }
 
+            // Simple velocity calculation from altitude
+            function velocityCalculator(altitudeData) {
+                if (!altitudeData || altitudeData.length === 0) return [];
+                const velocities = [0]; // Start with 0 for the first point
+                for (let i = 1; i < altitudeData.length; i++) {
+                    const velocity = altitudeData[i] - altitudeData[i - 1];
+                    velocities.push(velocity);
+                }
+                return velocities;
+            }
+
             // Refactored data processing function
             function processAndFilterData(rawCsvData) {
                 if (!rawCsvData || rawCsvData.length === 0) return { raw: [], filtered: [] };
@@ -288,22 +291,18 @@
 
                 // == STEP 1: Create the RAW dataset with derived values ==
                 const rawDerivedData = [];
+                const rawAltitudes = [];
                 for (let i = 0; i < rawCsvData.length; i++) {
                     const newRow = { ...rawCsvData[i] };
                     const pressure = newRow['Pressure'];
-                    
-                    // Derive Altitude from raw Pressure
                     newRow['Altitude'] = (pressure === null || pressure <= 0) ? 0 : 44330 * (1 - Math.pow(pressure / P0, 1 / 5.255));
-                    
-                    // Derive Velocity from raw Altitude difference, ensuring the first point is 0
-                    if (i > 0) {
-                        const prevRawAltitude = rawDerivedData[i - 1]['Altitude'];
-                        newRow['Velocity'] = newRow['Altitude'] - prevRawAltitude;
-                    } else {
-                        newRow['Velocity'] = 0;
-                    }
+                    rawAltitudes.push(newRow['Altitude']);
                     rawDerivedData.push(newRow);
                 }
+                
+                const rawVelocities = velocityCalculator(rawAltitudes);
+                rawDerivedData.forEach((row, i) => row['Velocity'] = rawVelocities[i]);
+                
 
                 // == STEP 2: Create the FILTERED dataset ==
                 const columnsToFilter = {
@@ -335,11 +334,11 @@
                 // == STEP 3: Add tilt calculation to rawDerivedData using filtered values from STEP 2 ==
                 for (let i = 0; i < rawDerivedData.length; i++) {
                     // Store filtered gyro data for tilt calculation
-                    const gyroX = filteredDerivedData[i]['Gyro Roll'] || 0;  // Easy to find: USING FILTERED
-                    const gyroY = filteredDerivedData[i]['Gyro Pitch'] || 0; // Easy to find: USING FILTERED
+                    const gyroX = filteredDerivedData[i]['Gyro Roll'] || 0;
+                    const gyroY = filteredDerivedData[i]['Gyro Pitch'] || 0;
                     
                     // Calculate tilt
-                    const tilt = Math.sqrt(gyroX * gyroX + gyroY * gyroY); // Easy to find
+                    const tilt = Math.sqrt(gyroX * gyroX + gyroY * gyroY);
                     
                     // Add the tilt data to the raw dataset, as it's used for animation state
                     rawDerivedData[i].tilt = tilt;
@@ -434,7 +433,7 @@
                 videoDownContainer.innerHTML = '<span>Down Video</span>';
                 if(tiltIndicator) tiltIndicator.style.transform = 'rotate(0deg)';
                 
-                [rewindBtn, playPauseBtn, forwardBtn, speedBtn, endBtn].forEach(btn => btn.disabled = true);
+                [rewindBtn, playPauseBtn, forwardBtn, speedBtn, endBtn, blinkBtn].forEach(btn => btn.disabled = true); // Added blinkBtn
                 playPauseBtn.textContent = 'Play';
                 speedBtn.textContent = '1x';
                 endBtn.textContent = 'End';
@@ -489,7 +488,7 @@
                         telemetryData = raw;
                         filteredTelemetryData = filtered;
                         [downloadCsvButton, dataModeButton].forEach(btn => btn.disabled = false);
-                        [rewindBtn, playPauseBtn, forwardBtn, speedBtn, endBtn].forEach(btn => btn.disabled = false);
+                        [rewindBtn, playPauseBtn, forwardBtn, speedBtn, endBtn, blinkBtn].forEach(btn => btn.disabled = false); // Added blinkBtn
                         isPaused = true;
                         playPauseBtn.textContent = 'Play';
                         updateAllChartModes();
@@ -668,11 +667,25 @@
                 if (!isPaused) startPlotting();
             };
 
+            const brokerAddress = 'wss://broker.hivemq.com:8884/mqtt'; 
+            const topic = 'AerobitsMASSS'; 
+
+            const client = mqtt.connect(brokerAddress);
+
+            client.on('connect', () => {
+                console.log('Connected to broker!');
+            });
+
+            const blinkLED = () => {
+                client.publish(topic, "0");
+            }
+
             playPauseBtn.addEventListener('click', togglePlayPause);
             rewindBtn.addEventListener('click', () => seek(-5));
             forwardBtn.addEventListener('click', () => seek(5));
             speedBtn.addEventListener('click', changeSpeed);
             endBtn.addEventListener('click', handleEndReplayClick);
+            blinkBtn.addEventListener('click', blinkLED); 
 
             downloadCsvButton.addEventListener('click', () => {
                 if (!telemetryData || telemetryData.length === 0) return;
