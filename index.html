@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GCS Telemetry Dashboard</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js for graphing -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- JSZip to handle zip files -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- PapaParse to parse CSV files -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        /* Custom styles to ensure a no-scroll, full-height layout */
+        body, html {
+            height: 100%;
+            margin: 0;
+            font-family: 'Inter', sans-serif;
+            overflow: hidden; /* Prevent scrolling */
+            background-color: #111827; /* Dark background */
+        }
+        /* Flexbox layout for main container */
+        .main-container {
+            display: flex;
+            height: 100vh;
+            padding: 1rem;
+            gap: 1rem;
+        }
+        /* Left and right panel styling */
+        .left-panel {
+            width: 30%; /* 30% of the screen */
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        .right-panel {
+            width: 70%; /* 70% of the screen */
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        /* Video container styling */
+        .video-container {
+            flex-grow: 1;
+            background-color: #1f2937;
+            border-radius: 0.5rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #9ca3af;
+            overflow: hidden; /* Ensures video fits within rounded corners */
+            min-height: 0; /* Prevents flexbox overflow */
+        }
+        .video-container video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover; /* Cover the container without losing aspect ratio */
+        }
+        /* Grid for charts */
+        .charts-grid {
+            flex-grow: 1;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            grid-template-rows: repeat(2, 1fr);
+            gap: 1rem;
+            min-height: 0; /* CRITICAL FIX: Prevents grid from expanding beyond its flex container */
+        }
+        /* Individual chart container styling */
+        .chart-wrapper {
+            background-color: #1f2937;
+            border-radius: 0.5rem;
+            padding: 0.75rem;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden; /* Prevents content from stretching the grid cell */
+            cursor: pointer;
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+        }
+         .chart-wrapper:hover {
+            transform: scale(1.02);
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.3);
+        }
+        /* Ensure canvas fills the container */
+        .chart-wrapper canvas {
+            flex-grow: 1;
+            min-height: 0;
+        }
+        .video-container span {
+            font-size: 0.8rem;
+        }
+        .chart-controls {
+            flex-shrink: 0;
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+            padding-top: 0.5rem;
+        }
+        .chart-toggle-btn {
+            background-color: #374151;
+            color: #d1d5db;
+            border: 1px solid #4b5563;
+            padding: 0.15rem 0.6rem;
+            font-size: 0.6rem;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            transition: background-color 0.2s, opacity 0.2s, filter 0.2s;
+        }
+        .chart-toggle-btn:hover {
+            filter: brightness(85%);
+        }
+        .chart-toggle-btn.inactive {
+            opacity: 0.6;
+        }
+        #tilt-indicator {
+            transition: transform 1s linear;
+        }
+    </style>
+</head>
+<body>
+    <!-- Drag and Drop Overlay -->
+    <div id="drag-drop-overlay" class="hidden fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center pointer-events-none z-50 transition-opacity duration-300">
+        <div id="overlay-text" class="text-white text-xl font-bold border-4 border-dashed border-white rounded-lg p-12 text-center">
+            Drop ZIP or CSV File Anywhere
+        </div>
+    </div>
+    
+    <!-- Chart Modal -->
+    <div id="chart-modal" class="hidden fixed inset-0 bg-black bg-opacity-85 flex justify-center items-center z-50 p-8 cursor-pointer">
+        <div class="bg-gray-800 rounded-lg p-4 w-full h-full max-w-6xl max-h-4xl relative cursor-default flex flex-col gap-2">
+            <!-- Modal Header -->
+            <div class="flex justify-between items-center flex-shrink-0">
+                <h2 id="modal-title" class="text-lg font-bold text-white">Chart Title</h2>
+                 <button id="modal-close-btn" class="text-white text-3xl font-bold hover:text-gray-400 transition-colors">&times;</button>
+            </div>
+            <!-- Modal Body -->
+            <div class="w-full h-full flex-grow min-h-0">
+                <canvas id="modal-canvas"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main container for the entire layout -->
+    <div class="main-container">
+        <!-- Left panel for videos -->
+        <div class="left-panel">
+            <div class="video-container" id="video-up-container">
+                <span>Up Video</span>
+            </div>
+            <div class="video-container" id="video-down-container">
+                <span>Down Video</span>
+            </div>
+        </div>
+
+        <!-- Right panel for header, charts, and footer -->
+        <div class="right-panel">
+            <header class="text-center py-4 bg-gray-800 rounded-lg flex-shrink-0">
+                <h1 class="text-2xl font-bold text-white">TEAM MASSS</h1>
+            </header>
+            <div class="charts-grid">
+                <!-- Row 1 -->
+                <div class="chart-wrapper"><canvas id="altitude-chart"></canvas></div>
+                <div class="chart-wrapper"><canvas id="velocity-chart"></canvas></div>
+                <div class="chart-wrapper"><canvas id="temp-chart"></canvas></div>
+                <div class="chart-wrapper"><canvas id="voltage-chart"></canvas></div>
+                
+                <!-- Row 2 -->
+                <div class="chart-wrapper">
+                    <canvas id="gyro-chart"></canvas>
+                    <div class="chart-controls">
+                        <button class="chart-toggle-btn" data-chart="gyro" data-dataset="0">Roll</button>
+                        <button class="chart-toggle-btn" data-chart="gyro" data-dataset="1">Pitch</button>
+                        <button class="chart-toggle-btn" data-chart="gyro" data-dataset="2">Yaw</button>
+                    </div>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="accel-chart"></canvas>
+                    <div class="chart-controls">
+                        <button class="chart-toggle-btn" data-chart="accel" data-dataset="0">X</button>
+                        <button class="chart-toggle-btn" data-chart="accel" data-dataset="1">Y</button>
+                        <button class="chart-toggle-btn" data-chart="accel" data-dataset="2">Z</button>
+                    </div>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="rotation-chart"></canvas>
+                    <div class="chart-controls">
+                        <button class="chart-toggle-btn" data-chart="rotation" data-dataset="0">AutoGyro1</button>
+                        <button class="chart-toggle-btn" data-chart="rotation" data-dataset="1">AutoGyro2</button>
+                    </div>
+                </div>
+                <!-- Tilt Animation -->
+                <div class="chart-wrapper flex flex-col justify-center items-center cursor-default">
+                    <div class="w-full h-full flex justify-center items-center">
+                         <div class="w-4 h-4/5 bg-blue-500 rounded" id="tilt-indicator"></div>
+                    </div>
+                </div>
+            </div>
+            <!-- Footer for controls, styled like the header -->
+            <footer class="bg-gray-800 rounded-lg flex-shrink-0 p-2 flex flex-col gap-2">
+                 <div class="flex justify-center items-center gap-4 w-full">
+                    <button id="upload-btn" class="text-xs flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded-lg transition duration-300 text-center">
+                        Upload ZIP File
+                    </button>
+                    <input type="file" id="zip-input" class="hidden" accept=".zip">
+
+                    <button id="upload-csv-btn" class="text-xs flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded-lg transition duration-300 text-center">
+                        Upload CSV File
+                    </button>
+                    <input type="file" id="csv-input" class="hidden" accept=".csv">
+
+                    <button id="download-csv-btn" class="text-xs flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded-lg transition duration-300 disabled:opacity-50 disabled:cursor-not-allowed text-center" disabled>
+                        Download CSV
+                    </button>
+                     <button id="data-mode-btn" class="text-xs flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-1 px-3 rounded-lg transition duration-300 disabled:opacity-50 disabled:cursor-not-allowed text-center" disabled>
+                        Mode: Filtered
+                    </button>
+                </div>
+                <div class="flex justify-center items-center gap-4 w-full">
+                    <button id="rewind-btn" class="text-xs flex-1 bg-gray-600 hover:bg-gray-700 text-white font-bold py-1 px-3 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed" disabled>-5s</button>
+                    <button id="forward-btn" class="text-xs flex-1 bg-gray-600 hover:bg-gray-700 text-white font-bold py-1 px-3 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed" disabled>+5s</button>
+                    <button id="play-pause-btn" class="text-xs flex-1 bg-gray-600 hover:bg-gray-700 text-white font-bold py-1 px-3 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed" disabled>Play</button>
+                    <button id="speed-btn" class="text-xs flex-1 bg-gray-600 hover:bg-gray-700 text-white font-bold py-1 px-3 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed" disabled>1x</button>
+                    <button id="end-btn" class="text-xs flex-1 bg-gray-600 hover:bg-gray-700 text-white font-bold py-1 px-3 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed" disabled>End</button>
+                </div>
+            </footer>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // File and general UI elements
+            const uploadButton = document.getElementById('upload-btn');
+            const zipInput = document.getElementById('zip-input');
+            const uploadCsvButton = document.getElementById('upload-csv-btn');
+            const csvInput = document.getElementById('csv-input');
+            const downloadCsvButton = document.getElementById('download-csv-btn');
+            const dataModeButton = document.getElementById('data-mode-btn');
+            const overlay = document.getElementById('drag-drop-overlay');
+            const overlayText = document.getElementById('overlay-text');
+            const videoUpContainer = document.getElementById('video-up-container');
+            const videoDownContainer = document.getElementById('video-down-container');
+            const tiltIndicator = document.getElementById('tilt-indicator');
+            
+            // Playback control buttons
+            const rewindBtn = document.getElementById('rewind-btn');
+            const playPauseBtn = document.getElementById('play-pause-btn');
+            const forwardBtn = document.getElementById('forward-btn');
+            const speedBtn = document.getElementById('speed-btn');
+            const endBtn = document.getElementById('end-btn');
+
+            // Modal elements
+            const chartModal = document.getElementById('chart-modal');
+            const modalTitle = document.getElementById('modal-title');
+            const modalCloseBtn = document.getElementById('modal-close-btn');
+            const modalCanvasCtx = document.getElementById('modal-canvas').getContext('2d');
+            let modalChartInstance = null;
+
+            // State variables
+            let charts = {};
+            let plotInterval = null;
+            let telemetryData = []; // Holds raw data with derived values
+            let filteredTelemetryData = []; // Holds filtered data
+            let currentIndex = 0;
+            let isPaused = true;
+            let playbackSpeed = 1;
+            let dataDisplayMode = 'filtered'; // 'filtered', 'raw', 'compare'
+            
+            // EMA Filter function
+            const alpha = 0.85;
+            function emaFilter(data) {
+                if (!data || data.length === 0) return [];
+                const firstVal = typeof data[0] === 'number' ? data[0] : 0;
+                const filtered = [firstVal];
+                for (let i = 1; i < data.length; i++) {
+                    const prevFiltered = filtered[i - 1];
+                    let currentRaw = data[i];
+                    if (typeof currentRaw !== 'number' || currentRaw === null) currentRaw = prevFiltered;
+                    filtered.push(alpha * currentRaw + (1 - alpha) * prevFiltered);
+                }
+                return filtered;
+            }
+
+            // Refactored data processing function
+            function processAndFilterData(rawCsvData) {
+                if (!rawCsvData || rawCsvData.length === 0) return { raw: [], filtered: [] };
+                const P0 = 101325;
+
+                // == STEP 1: Create the RAW dataset with derived values ==
+                const rawDerivedData = [];
+                for (let i = 0; i < rawCsvData.length; i++) {
+                    const newRow = { ...rawCsvData[i] };
+                    const pressure = newRow['Pressure'];
+                    
+                    // Derive Altitude from raw Pressure
+                    newRow['Altitude'] = (pressure === null || pressure <= 0) ? 0 : 44330 * (1 - Math.pow(pressure / P0, 1 / 5.255));
+                    
+                    // Derive Velocity from raw Altitude difference, ensuring the first point is 0
+                    if (i > 0) {
+                        const prevRawAltitude = rawDerivedData[i - 1]['Altitude'];
+                        newRow['Velocity'] = newRow['Altitude'] - prevRawAltitude;
+                    } else {
+                        newRow['Velocity'] = 0;
+                    }
+                    rawDerivedData.push(newRow);
+                }
+
+                // == STEP 2: Create the FILTERED dataset ==
+                const columnsToFilter = {
+                    'Altitude': [], 'Velocity': [], 'Temperature': [], 'Voltage': [],
+                    'Gyro Roll': [], 'Gyro Pitch': [], 'Gyro Yaw': [],
+                    'Accel Roll': [], 'Accel Pitch': [], 'Accel Yaw': [],
+                    'Auto Rotation 1': [], 'Auto Rotation 2': []
+                };
+                rawDerivedData.forEach(row => {
+                    for (const key in columnsToFilter) {
+                        columnsToFilter[key].push(row[key]);
+                    }
+                });
+                
+                const filteredColumns = {};
+                for (const key in columnsToFilter) {
+                    filteredColumns[key] = emaFilter(columnsToFilter[key]);
+                }
+                
+                const filteredDerivedData = [];
+                for (let i = 0; i < rawDerivedData.length; i++) {
+                    const filteredRow = {};
+                    for (const key in filteredColumns) {
+                        filteredRow[key] = filteredColumns[key][i];
+                    }
+                    filteredDerivedData.push(filteredRow);
+                }
+                
+                // == STEP 3: Add tilt calculation to rawDerivedData using filtered values from STEP 2 ==
+                for (let i = 0; i < rawDerivedData.length; i++) {
+                    // Store filtered gyro data for tilt calculation
+                    const gyroX = filteredDerivedData[i]['Gyro Roll'] || 0;  // Easy to find: USING FILTERED
+                    const gyroY = filteredDerivedData[i]['Gyro Pitch'] || 0; // Easy to find: USING FILTERED
+                    
+                    // Calculate tilt
+                    const tilt = Math.sqrt(gyroX * gyroX + gyroY * gyroY); // Easy to find
+                    
+                    // Add the tilt data to the raw dataset, as it's used for animation state
+                    rawDerivedData[i].tilt = tilt;
+                    rawDerivedData[i].gyroX_direction = gyroX; // Direction is also based on filtered data for smoothness
+                }
+
+                return { raw: rawDerivedData, filtered: filteredDerivedData };
+            }
+
+            const createDatasetPairs = (config) => {
+                const datasets = [];
+                const rawColor = config.color.replace(/, ?0\.\d+\)/, ', 0.3)').replace('rgb(', 'rgba(');
+                datasets.push({ label: `Filtered ${config.label}`, data: [], borderColor: config.color, borderWidth: 2, pointRadius: 0, tension: 0.4 });
+                datasets.push({ label: `Raw ${config.label}`, data: [], borderColor: rawColor, borderWidth: 1.5, pointRadius: 0, tension: 0.1, hidden: true });
+                return datasets;
+            };
+
+            const createChart = (ctx, label, color) => {
+                return new Chart(ctx, {
+                    type: 'line',
+                    data: { labels: [], datasets: createDatasetPairs({label, color}) },
+                    options: { responsive: true, maintainAspectRatio: false, animation: { duration: 0 }, plugins: { legend: { display: false }, title: { display: true, text: label, color: '#f9fafb', font: { size: 12 } } }, scales: { x: { title: { display: true, text: 'Time (s)', color: '#9ca3af', font: { size: 10 } }, ticks: { color: '#9ca3af', font: { size: 9 } }, grid: { color: 'rgba(255, 255, 255, 0.1)' } }, y: { ticks: { color: '#9ca3af', font: { size: 9 } }, grid: { color: 'rgba(255, 255, 255, 0.1)' } } } }
+                });
+            };
+            
+            const createMultiLineChart = (ctx, title, datasetsConfig) => {
+                 return new Chart(ctx, {
+                    type: 'line',
+                    data: { labels: [], datasets: datasetsConfig.flatMap(c => createDatasetPairs(c)) },
+                    options: { responsive: true, maintainAspectRatio: false, animation: { duration: 0 }, plugins: { legend: { display: false }, title: { display: true, text: title, color: '#f9fafb', font: { size: 12 } } }, scales: { x: { title: { display: true, text: 'Time (s)', color: '#9ca3af', font: { size: 10 } }, ticks: { color: '#9ca3af', font: { size: 9 } }, grid: { color: 'rgba(255, 255, 255, 0.1)' } }, y: { ticks: { color: '#9ca3af', font: { size: 9 } }, grid: { color: 'rgba(255, 255, 255, 0.1)' } } } }
+                });
+            };
+
+            const initCharts = () => {
+                charts.altitude = createChart(document.getElementById('altitude-chart').getContext('2d'), 'Altitude (m)', 'rgba(59, 130, 246, 0.8)');
+                charts.velocity = createChart(document.getElementById('velocity-chart').getContext('2d'), 'Velocity (m/s)', 'rgba(59, 130, 246, 0.8)');
+                charts.temp = createChart(document.getElementById('temp-chart').getContext('2d'), 'Temperature (°C)', 'rgba(59, 130, 246, 0.8)');
+                charts.voltage = createChart(document.getElementById('voltage-chart').getContext('2d'), 'Voltage (V)', 'rgba(59, 130, 246, 0.8)');
+                charts.gyro = createMultiLineChart(document.getElementById('gyro-chart').getContext('2d'), 'Gyroscope', [{ label: 'Roll', color: '#34D399' },{ label: 'Pitch', color: '#F87171' },{ label: 'Yaw', color: '#60A5FA' }]);
+                charts.accel = createMultiLineChart(document.getElementById('accel-chart').getContext('2d'), 'Accelerometer', [{ label: 'X', color: '#A78BFA' },{ label: 'Y', color: '#FBBF24' },{ label: 'Z', color: '#EC4899' }]);
+                charts.rotation = createMultiLineChart(document.getElementById('rotation-chart').getContext('2d'), 'Auto Rotation', [{ label: 'AutoGyro1', color: '#2DD4BF' },{ label: 'AutoGyro2', color: '#F472B6' }]);
+            };
+            
+            const updateButtonStyle = (button, chart, datasetIndex) => {
+                const filteredMeta = chart.getDatasetMeta(datasetIndex * 2);
+                const color = chart.data.datasets[datasetIndex * 2].borderColor;
+                if (filteredMeta.hidden) {
+                    button.classList.add('inactive');
+                    button.style.backgroundColor = '#374151'; button.style.borderColor = '#4b5563'; button.style.color = '#d1d5db'; 
+                } else {
+                    button.classList.remove('inactive');
+                    button.style.backgroundColor = color; button.style.borderColor = color; button.style.color = '#ffffff';
+                }
+            };
+
+            const setupChartToggles = () => {
+                document.querySelectorAll('.chart-toggle-btn').forEach(button => {
+                    const chartName = button.dataset.chart;
+                    const datasetIndex = parseInt(button.dataset.dataset, 10);
+                    const chart = charts[chartName];
+                    if (chart) {
+                        updateButtonStyle(button, chart, datasetIndex);
+                        button.addEventListener('click', (event) => {
+                            event.stopPropagation();
+                            const filteredMeta = chart.getDatasetMeta(datasetIndex * 2);
+                            const rawMeta = chart.getDatasetMeta(datasetIndex * 2 + 1);
+                            const isHidden = filteredMeta.hidden === null ? true : !filteredMeta.hidden;
+                            filteredMeta.hidden = isHidden;
+                            rawMeta.hidden = isHidden;
+                            chart.update();
+                            updateButtonStyle(button, chart, datasetIndex);
+                        });
+                    }
+                });
+            };
+
+            const resetCharts = () => {
+                Object.values(charts).forEach(chart => {
+                    chart.data.labels = [];
+                    chart.data.datasets.forEach(dataset => dataset.data = []);
+                    chart.update();
+                });
+            };
+
+            const resetState = () => {
+                stopPlotting();
+                telemetryData = [];
+                filteredTelemetryData = [];
+                [downloadCsvButton, dataModeButton].forEach(btn => btn.disabled = true);
+                resetCharts();
+                videoUpContainer.innerHTML = '<span>Up Video</span>';
+                videoDownContainer.innerHTML = '<span>Down Video</span>';
+                if(tiltIndicator) tiltIndicator.style.transform = 'rotate(0deg)';
+                
+                [rewindBtn, playPauseBtn, forwardBtn, speedBtn, endBtn].forEach(btn => btn.disabled = true);
+                playPauseBtn.textContent = 'Play';
+                speedBtn.textContent = '1x';
+                endBtn.textContent = 'End';
+                dataModeButton.textContent = 'Mode: Filtered';
+                isPaused = true;
+                playbackSpeed = 1;
+                currentIndex = 0;
+                dataDisplayMode = 'filtered';
+            };
+
+            // File Handling
+            uploadButton.addEventListener('click', () => zipInput.click());
+            uploadCsvButton.addEventListener('click', () => csvInput.click());
+            zipInput.addEventListener('change', (e) => e.target.files[0] && handleZipFile(e.target.files[0]));
+            csvInput.addEventListener('change', (e) => e.target.files[0] && handleCsvFile(e.target.files[0]));
+
+            const handleZipFile = (file) => {
+                resetState();
+                JSZip.loadAsync(file).then(zip => {
+                    let csvFound = false;
+                    zip.forEach((_, zipEntry) => {
+                        if (zipEntry.name.toLowerCase().endsWith('up.mp4') || zipEntry.name.toLowerCase().endsWith('down.mp4')) {
+                            zipEntry.async('blob').then(blob => {
+                                const videoURL = URL.createObjectURL(blob);
+                                const videoElement = document.createElement('video');
+                                videoElement.src = videoURL; videoElement.loop = false; videoElement.muted = true;
+                                const container = zipEntry.name.toLowerCase().endsWith('up.mp4') ? videoUpContainer : videoDownContainer;
+                                container.innerHTML = ''; container.appendChild(videoElement);
+                            });
+                        }
+                        if (!csvFound && zipEntry.name.toLowerCase().endsWith('.csv')) {
+                           csvFound = true;
+                           zipEntry.async('string').then(csvData => parseAndPlotData(csvData));
+                        }
+                    });
+                }).catch(err => console.error("Error reading zip file:", err));
+            };
+
+            const handleCsvFile = (file) => {
+                resetState();
+                const reader = new FileReader();
+                reader.onload = (e) => parseAndPlotData(e.target.result);
+                reader.readAsText(file);
+            };
+
+            const parseAndPlotData = (csvData) => {
+                Papa.parse(csvData, {
+                    header: true, dynamicTyping: true, skipEmptyLines: true,
+                    complete: (results) => {
+                        const rawCsvData = results.data;
+                        const { raw, filtered } = processAndFilterData(rawCsvData);
+                        telemetryData = raw;
+                        filteredTelemetryData = filtered;
+                        [downloadCsvButton, dataModeButton].forEach(btn => btn.disabled = false);
+                        [rewindBtn, playPauseBtn, forwardBtn, speedBtn, endBtn].forEach(btn => btn.disabled = false);
+                        isPaused = true;
+                        playPauseBtn.textContent = 'Play';
+                        updateAllChartModes();
+                    },
+                    error: (err) => console.error("Error parsing CSV:", err)
+                });
+            };
+
+            const addDataToCharts = (index) => {
+                if (index >= telemetryData.length) return;
+                const rawRow = telemetryData[index];
+                const filteredRow = filteredTelemetryData[index];
+                const label = index;
+
+                const pushData = (chart, keys) => {
+                    chart.data.labels.push(label);
+                    keys.forEach(key => {
+                        chart.data.datasets[key.index * 2].data.push(filteredRow[key.name]);
+                        chart.data.datasets[key.index * 2 + 1].data.push(rawRow[key.name]);
+                    });
+                };
+                
+                pushData(charts.altitude, [{ name: 'Altitude', index: 0 }]);
+                pushData(charts.velocity, [{ name: 'Velocity', index: 0 }]);
+                pushData(charts.temp, [{ name: 'Temperature', index: 0 }]);
+                pushData(charts.voltage, [{ name: 'Voltage', index: 0 }]);
+                pushData(charts.gyro, [{ name: 'Gyro Roll', index: 0 }, { name: 'Gyro Pitch', index: 1 }, { name: 'Gyro Yaw', index: 2 }]);
+                pushData(charts.accel, [{ name: 'Accel Roll', index: 0 }, { name: 'Accel Pitch', index: 1 }, { name: 'Accel Yaw', index: 2 }]);
+                pushData(charts.rotation, [{ name: 'Auto Rotation 1', index: 0 }, { name: 'Auto Rotation 2', index: 1 }]);
+            };
+            
+            const plotNextPoint = () => {
+                if (isPaused || currentIndex >= telemetryData.length) {
+                    if (currentIndex >= telemetryData.length) stopPlotting(true);
+                    return;
+                }
+                addDataToCharts(currentIndex);
+                Object.values(charts).forEach(chart => chart.update());
+                
+                // Tilt Animation Update
+                if (tiltIndicator && telemetryData[currentIndex]) {
+                    const currentRawData = telemetryData[currentIndex];
+                    const tiltAngle = currentRawData.tilt;
+                    const direction = currentRawData.gyroX_direction > 0 ? 1 : -1;
+                    tiltIndicator.style.transform = `rotate(${tiltAngle * direction}deg)`;
+                }
+
+                if (modalChartInstance) {
+                    const rawRow = telemetryData[currentIndex];
+                    const filteredRow = filteredTelemetryData[currentIndex];
+                    modalChartInstance.data.labels.push(currentIndex);
+
+                    for (let i = 0; i < modalChartInstance.data.datasets.length / 2; i++) {
+                         const filteredDs = modalChartInstance.data.datasets[i * 2];
+                         const rawDs = modalChartInstance.data.datasets[i * 2 + 1];
+                        
+                         const key = filteredDs.label.replace('Filtered ', '');
+                        
+                         let rawValue, filteredValue;
+
+                         const keyMap = { 'Altitude (m)': 'Altitude', 'Velocity (m/s)': 'Velocity', 'Temperature (°C)': 'Temperature', 'Voltage (V)': 'Voltage'};
+                         const multiKeyMap = { Roll: 'Gyro Roll', Pitch: 'Gyro Pitch', Yaw: 'Gyro Yaw', X: 'Accel Roll', Y: 'Accel Pitch', Z: 'Accel Yaw', AutoGyro1: 'Auto Rotation 1', AutoGyro2: 'Auto Rotation 2'};
+
+                         if (keyMap[key]) {
+                             rawValue = rawRow[keyMap[key]];
+                             filteredValue = filteredRow[keyMap[key]];
+                         } else if (multiKeyMap[key]) {
+                             rawValue = rawRow[multiKeyMap[key]];
+                             filteredValue = filteredRow[multiKeyMap[key]];
+                         }
+                        
+                         filteredDs.data.push(filteredValue);
+                         rawDs.data.push(rawValue);
+                    }
+                    modalChartInstance.update('none');
+                }
+                currentIndex++;
+            };
+            
+            const startPlotting = () => {
+                if (plotInterval) clearInterval(plotInterval);
+                plotInterval = setInterval(plotNextPoint, 1000 / playbackSpeed);
+            };
+
+            const stopPlotting = (finished = false) => {
+                clearInterval(plotInterval);
+                plotInterval = null;
+                isPaused = true;
+                playPauseBtn.textContent = 'Play';
+                if (finished) {
+                    playPauseBtn.textContent = 'Finished';
+                    playPauseBtn.disabled = true;
+                    endBtn.textContent = 'Replay';
+                    endBtn.disabled = false;
+                }
+                getBothVideos().forEach(v => v.pause());
+            };
+
+            const getBothVideos = () => [videoUpContainer.querySelector('video'), videoDownContainer.querySelector('video')].filter(Boolean);
+
+            const togglePlayPause = () => {
+                if (telemetryData.length === 0 || currentIndex >= telemetryData.length) return;
+                isPaused = !isPaused;
+                playPauseBtn.textContent = isPaused ? 'Play' : 'Pause';
+                const videos = getBothVideos();
+                if (isPaused) videos.forEach(v => v.pause());
+                else {
+                    videos.forEach(v => { v.currentTime = currentIndex; v.playbackRate = playbackSpeed; v.play(); });
+                    if (!plotInterval) startPlotting();
+                }
+            };
+            
+            const seek = (seconds) => {
+                if (telemetryData.length === 0) return;
+                const newIndex = Math.max(0, Math.min(currentIndex + seconds, telemetryData.length));
+                const wasPaused = isPaused;
+                
+                stopPlotting(); 
+                currentIndex = newIndex;
+                resetCharts();
+                for (let i = 0; i < currentIndex; i++) { addDataToCharts(i); }
+                
+                // This will redraw main charts AND update the modal if it's open
+                updateOnSeekOrModeChange();
+
+                getBothVideos().forEach(v => v.currentTime = currentIndex);
+
+                if (!wasPaused && currentIndex < telemetryData.length) {
+                    isPaused = false;
+                    playPauseBtn.textContent = 'Pause';
+                    playPauseBtn.disabled = false;
+                    startPlotting();
+                    getBothVideos().forEach(v => { v.playbackRate = playbackSpeed; v.play(); });
+                } else if (currentIndex >= telemetryData.length) stopPlotting(true);
+            };
+
+            const seekToEnd = () => {
+                if (telemetryData.length === 0) return;
+                stopPlotting();
+                currentIndex = telemetryData.length;
+                resetCharts();
+                for (let i = 0; i < currentIndex; i++) { addDataToCharts(i); }
+                updateOnSeekOrModeChange();
+                getBothVideos().forEach(v => v.currentTime = Math.max(0, currentIndex -1));
+                stopPlotting(true);
+            };
+            
+            const replayPlayback = () => {
+                stopPlotting();
+                currentIndex = 0;
+                playbackSpeed = 1;
+                resetCharts();
+
+                // Also reset the modal chart if it's open
+                if (modalChartInstance) {
+                    modalChartInstance.data.labels = [];
+                    modalChartInstance.data.datasets.forEach(dataset => {
+                        dataset.data = [];
+                    });
+                    modalChartInstance.update();
+                }
+
+                getBothVideos().forEach(v => { v.currentTime = 0; v.playbackRate = playbackSpeed; });
+                playPauseBtn.disabled = false; playPauseBtn.textContent = 'Play';
+                speedBtn.textContent = '1x'; endBtn.textContent = 'End';
+                isPaused = true; 
+                togglePlayPause();
+            };
+
+            const handleEndReplayClick = () => { endBtn.textContent === 'End' ? seekToEnd() : replayPlayback(); };
+            const changeSpeed = () => {
+                if(telemetryData.length === 0) return;
+                playbackSpeed = playbackSpeed === 1 ? 2 : 1;
+                speedBtn.textContent = `${playbackSpeed}x`;
+                getBothVideos().forEach(v => v.playbackRate = playbackSpeed);
+                if (!isPaused) startPlotting();
+            };
+
+            playPauseBtn.addEventListener('click', togglePlayPause);
+            rewindBtn.addEventListener('click', () => seek(-5));
+            forwardBtn.addEventListener('click', () => seek(5));
+            speedBtn.addEventListener('click', changeSpeed);
+            endBtn.addEventListener('click', handleEndReplayClick);
+
+            downloadCsvButton.addEventListener('click', () => {
+                if (!telemetryData || telemetryData.length === 0) return;
+
+                let dataToDownload;
+                let downloadOptions = {};
+                const downloadKeys = [
+                    'Altitude', 'Velocity', 'Temperature', 'Voltage',
+                    'Gyro Roll', 'Gyro Pitch', 'Gyro Yaw',
+                    'Accel Roll', 'Accel Pitch', 'Accel Yaw',
+                    'Auto Rotation 1', 'Auto Rotation 2'
+                ];
+
+                if (dataDisplayMode === 'filtered') {
+                    dataToDownload = filteredTelemetryData;
+                    downloadOptions.fields = downloadKeys;
+                } else if (dataDisplayMode === 'raw') {
+                    dataToDownload = telemetryData;
+                    downloadOptions.fields = downloadKeys;
+                } else { // 'compare' mode
+                    const compareData = [];
+                    for (let i = 0; i < telemetryData.length; i++) {
+                        const newRow = {};
+                        downloadKeys.forEach(key => {
+                            newRow[`${key} (Filtered)`] = filteredTelemetryData[i] ? filteredTelemetryData[i][key] : null;
+                            newRow[`${key} (Raw)`] = telemetryData[i] ? telemetryData[i][key] : null;
+                        });
+                        compareData.push(newRow);
+                    }
+                    dataToDownload = compareData;
+                }
+
+                const csv = Papa.unparse(dataToDownload, downloadOptions);
+                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(blob);
+                link.download = `telemetry_data_${dataDisplayMode}.csv`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            });
+
+            function hexToRgba(hex, alpha) {
+                let r = 0, g = 0, b = 0;
+                if (hex.length === 4) { // #RGB
+                    r = "0x" + hex[1] + hex[1]; g = "0x" + hex[2] + hex[2]; b = "0x" + hex[3] + hex[3];
+                } else if (hex.length === 7) { // #RRGGBB
+                    r = "0x" + hex[1] + hex[2]; g = "0x" + hex[3] + hex[4]; b = "0x" + hex[5] + hex[6];
+                }
+                return `rgba(${+r},${+g},${+b},${alpha})`;
+            }
+
+            const updateOnSeekOrModeChange = () => {
+                Object.values(charts).forEach(chart => chart.update());
+
+                if (modalChartInstance) {
+                    const originalChart = modalChartInstance.originalChart;
+                    const clonedData = JSON.parse(JSON.stringify(originalChart.data));
+                    for (let i = 0; i < originalChart.data.datasets.length; i++) {
+                        clonedData.datasets[i].hidden = !originalChart.isDatasetVisible(i);
+                    }
+                    modalChartInstance.data = clonedData;
+                    modalChartInstance.update('none');
+                }
+            };
+            
+            const updateAllChartModes = () => {
+                Object.values(charts).forEach(chart => {
+                    chart.data.datasets.forEach((dataset, i) => {
+                        if (i % 2 !== 0) return; // Operate on pairs
+
+                        const filteredDataset = chart.data.datasets[i];
+                        const rawDataset = chart.data.datasets[i + 1];
+                        
+                        const originalColor = filteredDataset.borderColor;
+                        let lowOpacityColor;
+                        if (originalColor.startsWith('#')) {
+                            lowOpacityColor = hexToRgba(originalColor, 0.3);
+                        } else { // Assume rgba
+                            lowOpacityColor = originalColor.replace(/, ?\d?\.?\d+\)/, ', 0.3)');
+                        }
+
+                        if (dataDisplayMode === 'filtered') {
+                            filteredDataset.hidden = false;
+                            rawDataset.hidden = true;
+                        } else if (dataDisplayMode === 'raw') {
+                            filteredDataset.hidden = true;
+                            rawDataset.hidden = false;
+                            rawDataset.borderColor = originalColor; // Raw takes full opacity color
+                        } else { // compare
+                            filteredDataset.hidden = false;
+                            rawDataset.hidden = false;
+                            rawDataset.borderColor = lowOpacityColor; // Raw gets low opacity color
+                        }
+                    });
+
+                    // Re-apply individual toggles after setting the mode visibility
+                    for (let j = 0; j < chart.data.datasets.length / 2; j++) {
+                        if (!chart.isDatasetVisible(j*2) && !chart.isDatasetVisible(j*2+1)) {
+                            const filteredMeta = chart.getDatasetMeta(j * 2);
+                            if (filteredMeta.hidden) {
+                                chart.data.datasets[j * 2].hidden = true;
+                                chart.data.datasets[j * 2 + 1].hidden = true;
+                            }
+                        }
+                    }
+                });
+                updateOnSeekOrModeChange();
+            };
+
+            dataModeButton.addEventListener('click', () => {
+                if (dataDisplayMode === 'filtered') dataDisplayMode = 'raw';
+                else if (dataDisplayMode === 'raw') dataDisplayMode = 'compare';
+                else dataDisplayMode = 'filtered';
+                dataModeButton.textContent = `Mode: ${dataDisplayMode.charAt(0).toUpperCase() + dataDisplayMode.slice(1)}`;
+                updateAllChartModes();
+            });
+
+             let dragCounter = 0;
+            window.addEventListener('dragenter', (e) => { e.preventDefault(); e.stopPropagation(); dragCounter++; overlay.classList.remove('hidden'); });
+            window.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); });
+            window.addEventListener('dragleave', (e) => { e.preventDefault(); e.stopPropagation(); dragCounter--; if (dragCounter === 0) overlay.classList.add('hidden'); });
+            window.addEventListener('drop', (e) => {
+                e.preventDefault(); e.stopPropagation(); dragCounter = 0; overlay.classList.add('hidden');
+                const file = e.dataTransfer.files[0];
+                if (file) {
+                    if (file.name.toLowerCase().endsWith('.zip')) handleZipFile(file);
+                    else if (file.name.toLowerCase().endsWith('.csv')) handleCsvFile(file);
+                }
+            });
+
+             // Modal Logic
+            document.querySelectorAll('.chart-wrapper').forEach(wrapper => {
+                if (wrapper.querySelector('canvas')) { // Only add click to chart wrappers
+                    wrapper.addEventListener('click', () => {
+                        const canvasId = wrapper.querySelector('canvas').id;
+                        const originalChart = charts[canvasId.replace('-chart', '')];
+                        if (originalChart && telemetryData.length > 0) {
+                            if (modalChartInstance) modalChartInstance.destroy();
+                            
+                            const modalOptions = JSON.parse(JSON.stringify(originalChart.options));
+                            modalOptions.plugins.legend.display = true;
+                            modalOptions.plugins.legend.position = 'bottom';
+                            modalOptions.maintainAspectRatio = false;
+                            modalOptions.plugins.title.display = false;
+                            modalOptions.plugins.legend.labels = {
+                                filter: function(legendItem, chartData) {
+                                    const dataset = chartData.datasets[legendItem.datasetIndex];
+                                    return !dataset.hidden;
+                                }
+                            };
+                            modalTitle.textContent = originalChart.options.plugins.title.text;
+
+                            const clonedData = JSON.parse(JSON.stringify(originalChart.data));
+
+                            for (let i = 0; i < originalChart.data.datasets.length; i++) {
+                                clonedData.datasets[i].hidden = !originalChart.isDatasetVisible(i);
+                            }
+
+                            modalChartInstance = new Chart(modalCanvasCtx, { type: 'line', data: clonedData, options: modalOptions });
+                            modalChartInstance.originalChart = originalChart; 
+                            chartModal.classList.remove('hidden');
+                        }
+                    });
+                }
+            });
+            
+            const closeModal = () => {
+                chartModal.classList.add('hidden');
+                if (modalChartInstance) { modalChartInstance.destroy(); modalChartInstance = null; }
+            };
+
+            modalCloseBtn.addEventListener('click', closeModal);
+            chartModal.addEventListener('click', (e) => { if (e.target === chartModal) closeModal(); });
+            
+            window.addEventListener('keydown', (e) => { 
+                if (e.target.tagName === 'INPUT') return;
+
+                switch(e.key) {
+                    case 'Escape':
+                        if (!chartModal.classList.contains('hidden')) {
+                            closeModal();
+                        }
+                        break;
+                    case ' ':
+                        e.preventDefault(); 
+                        if (!playPauseBtn.disabled) togglePlayPause();
+                        break;
+                    case 'ArrowRight':
+                        if (!forwardBtn.disabled) seek(5);
+                        break;
+                    case 'ArrowLeft':
+                        if (!rewindBtn.disabled) seek(-5);
+                        break;
+                    case 'Tab':
+                        e.preventDefault();
+                        if (!speedBtn.disabled) changeSpeed();
+                        break;
+                    case 'Control':
+                        e.preventDefault();
+                        if (!endBtn.disabled) handleEndReplayClick();
+                        break;
+                    case '1':
+                        if (!dataModeButton.disabled) {
+                            dataDisplayMode = 'filtered';
+                            dataModeButton.textContent = 'Mode: Filtered';
+                            updateAllChartModes();
+                        }
+                        break;
+                    case '2':
+                         if (!dataModeButton.disabled) {
+                            dataDisplayMode = 'raw';
+                            dataModeButton.textContent = 'Mode: Raw';
+                            updateAllChartModes();
+                        }
+                        break;
+                    case '3':
+                         if (!dataModeButton.disabled) {
+                            dataDisplayMode = 'compare';
+                            dataModeButton.textContent = 'Mode: Compare';
+                            updateAllChartModes();
+                        }
+                        break;
+                }
+            });
+
+            initCharts();
+            setupChartToggles();
+        });
+    </script>
+</body>
+</html>
+
