@@ -210,7 +210,7 @@
                     <button id="end-btn" class="text-xs flex-1 bg-gray-600 hover:bg-gray-700 text-white font-bold py-1 px-3 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed" disabled>End</button>
                 </div>
                 <!-- Row 3: Additional Controls (Blink) --><div class="flex justify-center items-center gap-4 w-full">
-                    <button id="blink-btn" class="text-xs flex-1 bg-blue-500 hover:bg-blue-600 text-white font-bold py-1 px-3 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed" disabled>Blink</button>
+                    <button id="blink-btn" class="text-xs flex-1 bg-blue-500 hover:bg-blue-600 text-white font-bold py-1 px-3 rounded-lg transition">Blink</button> <!-- Removed disabled attribute -->
                 </div>
             </footer>
         </div>
@@ -433,7 +433,8 @@
                 videoDownContainer.innerHTML = '<span>Down Video</span>';
                 if(tiltIndicator) tiltIndicator.style.transform = 'rotate(0deg)';
                 
-                [rewindBtn, playPauseBtn, forwardBtn, speedBtn, endBtn, blinkBtn].forEach(btn => btn.disabled = true); // Added blinkBtn
+                 // Only disable playback controls on reset, keep blink enabled
+                [rewindBtn, playPauseBtn, forwardBtn, speedBtn, endBtn].forEach(btn => btn.disabled = true);
                 playPauseBtn.textContent = 'Play';
                 speedBtn.textContent = '1x';
                 endBtn.textContent = 'End';
@@ -488,7 +489,8 @@
                         telemetryData = raw;
                         filteredTelemetryData = filtered;
                         [downloadCsvButton, dataModeButton].forEach(btn => btn.disabled = false);
-                        [rewindBtn, playPauseBtn, forwardBtn, speedBtn, endBtn, blinkBtn].forEach(btn => btn.disabled = false); // Added blinkBtn
+                        // Only enable playback controls here
+                        [rewindBtn, playPauseBtn, forwardBtn, speedBtn, endBtn].forEach(btn => btn.disabled = false);
                         isPaused = true;
                         playPauseBtn.textContent = 'Play';
                         updateAllChartModes();
@@ -668,16 +670,30 @@
             };
 
             const brokerAddress = 'wss://broker.hivemq.com:8884/mqtt'; 
-            const topic = 'Aerobits'; 
+            const topic = 'Aerobits'; // Corrected topic
 
             const client = mqtt.connect(brokerAddress);
 
             client.on('connect', () => {
                 console.log('Connected to broker!');
+                blinkBtn.disabled = false; // Enable blink button on successful connection
             });
 
+            client.on('error', (err) => {
+                console.error('MQTT Connection Error:', err);
+                // Optionally disable the button again if connection fails
+                // blinkBtn.disabled = true; 
+            });
+
+
             const blinkLED = () => {
-                client.publish(topic, "0");
+                if (client && client.connected) {
+                    client.publish(topic, "0");
+                    console.log(`Published "0" to topic "${topic}"`);
+                } else {
+                    console.error("MQTT client not connected. Cannot publish message.");
+                    // Optionally try to reconnect or provide user feedback
+                }
             }
 
             playPauseBtn.addEventListener('click', togglePlayPause);
@@ -918,5 +934,4 @@
     </script>
 </body>
 </html>
-
 
