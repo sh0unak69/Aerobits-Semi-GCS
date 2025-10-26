@@ -39,7 +39,7 @@
         }
         /* Video container styling */
         .video-container {
-            flex-grow: 1;
+            flex-grow: 1; /* Takes up most space */
             background-color: #1f2937;
             border-radius: 0.5rem;
             display: flex;
@@ -54,12 +54,24 @@
             height: 100%;
             object-fit: cover; /* Cover the container without losing aspect ratio */
         }
+        /* Tilt container styling */
+        .tilt-container {
+             height: 150px; /* Give the tilt animation a fixed height */
+             flex-shrink: 0; /* Prevent it from shrinking */
+             background-color: #1f2937;
+             border-radius: 0.5rem;
+             display: flex;
+             flex-direction: column;
+             justify-content: center;
+             align-items: center;
+             padding: 0.5rem;
+        }
         /* Grid for charts */
         .charts-grid {
             flex-grow: 1;
             display: grid;
             grid-template-columns: repeat(4, 1fr);
-            grid-template-rows: repeat(2, 1fr);
+            grid-template-rows: repeat(2, 1fr); /* 2 rows needed for 8 items */
             gap: 1rem;
             min-height: 0; /* CRITICAL FIX: Prevents grid from expanding beyond its flex container */
         }
@@ -135,12 +147,13 @@
     </div>
 
     <!-- Main container for the entire layout --><div class="main-container">
-        <!-- Left panel for videos --><div class="left-panel">
+        <!-- Left panel for video and tilt animation --><div class="left-panel">
             <div class="video-container" id="video-up-container">
-                <span>Up Video</span>
+                <span>Video Player</span> <!-- Changed placeholder text -->
             </div>
-            <div class="video-container" id="video-down-container">
-                <span>Down Video</span>
+             <!-- Tilt Animation moved here -->
+            <div class="tilt-container">
+                 <div class="w-4 h-4/5 bg-blue-500 rounded" id="tilt-indicator"></div>
             </div>
         </div>
 
@@ -149,12 +162,14 @@
                 <h1 class="text-2xl font-bold text-white">TEAM MASSS</h1>
             </header>
             <div class="charts-grid">
-                <!-- Row 1 --><div class="chart-wrapper"><canvas id="altitude-chart"></canvas></div>
+                <!-- Row 1: Altitude, Pressure, Velocity, Temp -->
+                <div class="chart-wrapper"><canvas id="altitude-chart"></canvas></div>
+                <div class="chart-wrapper"><canvas id="pressure-chart"></canvas></div>
                 <div class="chart-wrapper"><canvas id="velocity-chart"></canvas></div>
                 <div class="chart-wrapper"><canvas id="temp-chart"></canvas></div>
-                <div class="chart-wrapper"><canvas id="voltage-chart"></canvas></div>
                 
-                <!-- Row 2 --><div class="chart-wrapper">
+                <!-- Row 2: Gyro, Accel, Auto Rotation, Voltage -->
+                <div class="chart-wrapper">
                     <canvas id="gyro-chart"></canvas>
                     <div class="chart-controls">
                         <button class="chart-toggle-btn" data-chart="gyro" data-dataset="0">Roll</button>
@@ -177,11 +192,7 @@
                         <button class="chart-toggle-btn" data-chart="rotation" data-dataset="1">AutoGyro2</button>
                     </div>
                 </div>
-                <!-- Tilt Animation --><div class="chart-wrapper flex flex-col justify-center items-center cursor-default">
-                    <div class="w-full h-full flex justify-center items-center">
-                         <div class="w-4 h-4/5 bg-blue-500 rounded" id="tilt-indicator"></div>
-                    </div>
-                </div>
+                 <div class="chart-wrapper"><canvas id="voltage-chart"></canvas></div>
             </div>
             <!-- Footer for controls, styled like the header --><footer class="bg-gray-800 rounded-lg flex-shrink-0 p-2 flex flex-col gap-2">
                  <!-- Row 1: File Operations & Mode --><div class="flex justify-center items-center gap-4 w-full">
@@ -228,7 +239,6 @@
             const overlay = document.getElementById('drag-drop-overlay');
             const overlayText = document.getElementById('overlay-text');
             const videoUpContainer = document.getElementById('video-up-container');
-            const videoDownContainer = document.getElementById('video-down-container');
             const tiltIndicator = document.getElementById('tilt-indicator');
             
             // Playback control buttons
@@ -239,7 +249,7 @@
             const endBtn = document.getElementById('end-btn');
 
             // Live buttons
-            const blinkBtn = document.getElementById('blink-btn'); // Added Blink button
+            const blinkBtn = document.getElementById('blink-btn'); 
 
             // Modal elements
             const chartModal = document.getElementById('chart-modal');
@@ -306,7 +316,7 @@
 
                 // == STEP 2: Create the FILTERED dataset ==
                 const columnsToFilter = {
-                    'Altitude': [], 'Velocity': [], 'Temperature': [], 'Voltage': [],
+                    'Pressure': [], 'Altitude': [], 'Velocity': [], 'Temperature': [], 'Voltage': [], // Added Pressure
                     'Gyro Roll': [], 'Gyro Pitch': [], 'Gyro Yaw': [],
                     'Accel Roll': [], 'Accel Pitch': [], 'Accel Yaw': [],
                     'Auto Rotation 1': [], 'Auto Rotation 2': []
@@ -374,12 +384,13 @@
 
             const initCharts = () => {
                 charts.altitude = createChart(document.getElementById('altitude-chart').getContext('2d'), 'Altitude (m)', 'rgba(59, 130, 246, 0.8)');
-                charts.velocity = createChart(document.getElementById('velocity-chart').getContext('2d'), 'Velocity (m/s)', 'rgba(59, 130, 246, 0.8)');
-                charts.temp = createChart(document.getElementById('temp-chart').getContext('2d'), 'Temperature (°C)', 'rgba(59, 130, 246, 0.8)');
-                charts.voltage = createChart(document.getElementById('voltage-chart').getContext('2d'), 'Voltage (V)', 'rgba(59, 130, 246, 0.8)');
+                charts.pressure = createChart(document.getElementById('pressure-chart').getContext('2d'), 'Pressure (Pa)', 'rgba(239, 68, 68, 0.8)'); // Added Pressure Chart
+                charts.velocity = createChart(document.getElementById('velocity-chart').getContext('2d'), 'Velocity (m/s)', 'rgba(16, 185, 129, 0.8)');
+                charts.temp = createChart(document.getElementById('temp-chart').getContext('2d'), 'Temperature (°C)', 'rgba(245, 158, 11, 0.8)');
                 charts.gyro = createMultiLineChart(document.getElementById('gyro-chart').getContext('2d'), 'Gyroscope', [{ label: 'Roll', color: '#34D399' },{ label: 'Pitch', color: '#F87171' },{ label: 'Yaw', color: '#60A5FA' }]);
                 charts.accel = createMultiLineChart(document.getElementById('accel-chart').getContext('2d'), 'Accelerometer', [{ label: 'X', color: '#A78BFA' },{ label: 'Y', color: '#FBBF24' },{ label: 'Z', color: '#EC4899' }]);
                 charts.rotation = createMultiLineChart(document.getElementById('rotation-chart').getContext('2d'), 'Auto Rotation', [{ label: 'AutoGyro1', color: '#2DD4BF' },{ label: 'AutoGyro2', color: '#F472B6' }]);
+                charts.voltage = createChart(document.getElementById('voltage-chart').getContext('2d'), 'Voltage (V)', 'rgba(139, 92, 246, 0.8)'); // Moved Voltage
             };
             
             const updateButtonStyle = (button, chart, datasetIndex) => {
@@ -429,8 +440,8 @@
                 filteredTelemetryData = [];
                 [downloadCsvButton, dataModeButton].forEach(btn => btn.disabled = true);
                 resetCharts();
-                videoUpContainer.innerHTML = '<span>Up Video</span>';
-                videoDownContainer.innerHTML = '<span>Down Video</span>';
+                videoUpContainer.innerHTML = '<span>Video Player</span>'; // Updated placeholder
+                // videoDownContainer.innerHTML = '<span>Down Video</span>'; // Removed
                 if(tiltIndicator) tiltIndicator.style.transform = 'rotate(0deg)';
                 
                  // Only disable playback controls on reset, keep blink enabled
@@ -455,14 +466,19 @@
                 resetState();
                 JSZip.loadAsync(file).then(zip => {
                     let csvFound = false;
+                    let videoFound = false; // Flag to process only the first video
                     zip.forEach((_, zipEntry) => {
-                        if (zipEntry.name.toLowerCase().endsWith('up.mp4') || zipEntry.name.toLowerCase().endsWith('down.mp4')) {
+                        // Look for the first video file (.mp4)
+                        if (!videoFound && zipEntry.name.toLowerCase().endsWith('.mp4')) {
+                            videoFound = true; // Mark video as found
                             zipEntry.async('blob').then(blob => {
                                 const videoURL = URL.createObjectURL(blob);
                                 const videoElement = document.createElement('video');
-                                videoElement.src = videoURL; videoElement.loop = false; videoElement.muted = true;
-                                const container = zipEntry.name.toLowerCase().endsWith('up.mp4') ? videoUpContainer : videoDownContainer;
-                                container.innerHTML = ''; container.appendChild(videoElement);
+                                videoElement.src = videoURL; 
+                                videoElement.loop = false; 
+                                videoElement.muted = true;
+                                videoUpContainer.innerHTML = ''; 
+                                videoUpContainer.appendChild(videoElement);
                             });
                         }
                         if (!csvFound && zipEntry.name.toLowerCase().endsWith('.csv')) {
@@ -470,7 +486,13 @@
                            zipEntry.async('string').then(csvData => parseAndPlotData(csvData));
                         }
                     });
-                }).catch(err => console.error("Error reading zip file:", err));
+                     if (!videoFound) {
+                        videoUpContainer.innerHTML = '<span>No video found in ZIP</span>';
+                    }
+                }).catch(err => {
+                    console.error("Error reading zip file:", err);
+                    videoUpContainer.innerHTML = '<span>Error reading ZIP</span>';
+                });
             };
 
             const handleCsvFile = (file) => {
@@ -508,15 +530,21 @@
                 const pushData = (chart, keys) => {
                     chart.data.labels.push(label);
                     keys.forEach(key => {
-                        chart.data.datasets[key.index * 2].data.push(filteredRow[key.name]);
-                        chart.data.datasets[key.index * 2 + 1].data.push(rawRow[key.name]);
+                        // Check if dataset exists before trying to push data
+                        if (chart.data.datasets[key.index * 2] && chart.data.datasets[key.index * 2 + 1]) {
+                             chart.data.datasets[key.index * 2].data.push(filteredRow[key.name]);
+                             chart.data.datasets[key.index * 2 + 1].data.push(rawRow[key.name]);
+                        } else {
+                            console.error(`Dataset index ${key.index*2} or ${key.index*2+1} not found for key ${key.name}`);
+                        }
                     });
                 };
                 
                 pushData(charts.altitude, [{ name: 'Altitude', index: 0 }]);
+                pushData(charts.pressure, [{ name: 'Pressure', index: 0 }]); // Added Pressure
                 pushData(charts.velocity, [{ name: 'Velocity', index: 0 }]);
                 pushData(charts.temp, [{ name: 'Temperature', index: 0 }]);
-                pushData(charts.voltage, [{ name: 'Voltage', index: 0 }]);
+                pushData(charts.voltage, [{ name: 'Voltage', index: 0 }]); // Moved Voltage call
                 pushData(charts.gyro, [{ name: 'Gyro Roll', index: 0 }, { name: 'Gyro Pitch', index: 1 }, { name: 'Gyro Yaw', index: 2 }]);
                 pushData(charts.accel, [{ name: 'Accel Roll', index: 0 }, { name: 'Accel Pitch', index: 1 }, { name: 'Accel Yaw', index: 2 }]);
                 pushData(charts.rotation, [{ name: 'Auto Rotation 1', index: 0 }, { name: 'Auto Rotation 2', index: 1 }]);
@@ -551,7 +579,8 @@
                         
                          let rawValue, filteredValue;
 
-                         const keyMap = { 'Altitude (m)': 'Altitude', 'Velocity (m/s)': 'Velocity', 'Temperature (°C)': 'Temperature', 'Voltage (V)': 'Voltage'};
+                         // Updated keyMap to include Pressure
+                         const keyMap = { 'Altitude (m)': 'Altitude', 'Pressure (Pa)': 'Pressure', 'Velocity (m/s)': 'Velocity', 'Temperature (°C)': 'Temperature', 'Voltage (V)': 'Voltage'};
                          const multiKeyMap = { Roll: 'Gyro Roll', Pitch: 'Gyro Pitch', Yaw: 'Gyro Yaw', X: 'Accel Roll', Y: 'Accel Pitch', Z: 'Accel Yaw', AutoGyro1: 'Auto Rotation 1', AutoGyro2: 'Auto Rotation 2'};
 
                          if (keyMap[key]) {
@@ -586,16 +615,17 @@
                     endBtn.textContent = 'Replay';
                     endBtn.disabled = false;
                 }
-                getBothVideos().forEach(v => v.pause());
+                getVideos().forEach(v => v.pause()); // Adjusted function name
             };
 
-            const getBothVideos = () => [videoUpContainer.querySelector('video'), videoDownContainer.querySelector('video')].filter(Boolean);
+            // Renamed function, now only gets the 'up' video
+            const getVideos = () => [videoUpContainer.querySelector('video')].filter(Boolean); 
 
             const togglePlayPause = () => {
                 if (telemetryData.length === 0 || currentIndex >= telemetryData.length) return;
                 isPaused = !isPaused;
                 playPauseBtn.textContent = isPaused ? 'Play' : 'Pause';
-                const videos = getBothVideos();
+                const videos = getVideos(); // Adjusted function name
                 if (isPaused) videos.forEach(v => v.pause());
                 else {
                     videos.forEach(v => { v.currentTime = currentIndex; v.playbackRate = playbackSpeed; v.play(); });
@@ -616,14 +646,14 @@
                 // This will redraw main charts AND update the modal if it's open
                 updateOnSeekOrModeChange();
 
-                getBothVideos().forEach(v => v.currentTime = currentIndex);
+                getVideos().forEach(v => v.currentTime = currentIndex); // Adjusted function name
 
                 if (!wasPaused && currentIndex < telemetryData.length) {
                     isPaused = false;
                     playPauseBtn.textContent = 'Pause';
                     playPauseBtn.disabled = false;
                     startPlotting();
-                    getBothVideos().forEach(v => { v.playbackRate = playbackSpeed; v.play(); });
+                    getVideos().forEach(v => { v.playbackRate = playbackSpeed; v.play(); }); // Adjusted function name
                 } else if (currentIndex >= telemetryData.length) stopPlotting(true);
             };
 
@@ -634,7 +664,7 @@
                 resetCharts();
                 for (let i = 0; i < currentIndex; i++) { addDataToCharts(i); }
                 updateOnSeekOrModeChange();
-                getBothVideos().forEach(v => v.currentTime = Math.max(0, currentIndex -1));
+                getVideos().forEach(v => v.currentTime = Math.max(0, currentIndex -1)); // Adjusted function name
                 stopPlotting(true);
             };
             
@@ -653,7 +683,7 @@
                     modalChartInstance.update();
                 }
 
-                getBothVideos().forEach(v => { v.currentTime = 0; v.playbackRate = playbackSpeed; });
+                getVideos().forEach(v => { v.currentTime = 0; v.playbackRate = playbackSpeed; }); // Adjusted function name
                 playPauseBtn.disabled = false; playPauseBtn.textContent = 'Play';
                 speedBtn.textContent = '1x'; endBtn.textContent = 'End';
                 isPaused = true; 
@@ -665,7 +695,7 @@
                 if(telemetryData.length === 0) return;
                 playbackSpeed = playbackSpeed === 1 ? 2 : 1;
                 speedBtn.textContent = `${playbackSpeed}x`;
-                getBothVideos().forEach(v => v.playbackRate = playbackSpeed);
+                getVideos().forEach(v => v.playbackRate = playbackSpeed); // Adjusted function name
                 if (!isPaused) startPlotting();
             };
 
@@ -708,8 +738,9 @@
 
                 let dataToDownload;
                 let downloadOptions = {};
+                // Updated downloadKeys to include Pressure
                 const downloadKeys = [
-                    'Altitude', 'Velocity', 'Temperature', 'Voltage',
+                    'Altitude', 'Pressure', 'Velocity', 'Temperature', 'Voltage',
                     'Gyro Roll', 'Gyro Pitch', 'Gyro Yaw',
                     'Accel Roll', 'Accel Pitch', 'Accel Yaw',
                     'Auto Rotation 1', 'Auto Rotation 2'
