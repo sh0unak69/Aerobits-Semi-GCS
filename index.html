@@ -824,6 +824,7 @@
 
             const brokerAddress = 'wss://broker.hivemq.com:8884/mqtt'; 
             const topic = 'Aerobits'; // Corrected topic
+            const topicData = 'Aerobits/data';
 
             const client = mqtt.connect(brokerAddress);
 
@@ -838,6 +839,15 @@
                  // Optionally disable the blink button again if connection fails
                 // blinkBtn.disabled = true; 
             });
+
+            client.on('message', (top, message) => {
+                if(top === topicData){
+                        const msg = message.toString();
+                        const dataArray =  stringArray.map(msg.split(","));
+
+                        console.log(dataArray);
+                }
+            })
 
 
             const blinkLED = () => {
