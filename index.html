@@ -316,7 +316,7 @@
             let isLiveMode = false; // Live Telemetry: Flag for live mode
             let liveDataCounter = 0; // Live Telemetry: Counter for live data points
             let lastFilteredValues = {}; // Live Telemetry: Store last filtered values for EMA continuity
-            let lastRawAltitude = 0; // Live Telemetry: Store last raw altitude for live velocity calc
+            let lastRawAltitude = 0; // Live Telemetry: Store last raw altitude for velocity calculation
             
             // EMA Filter function
             const alpha = 0.2;
@@ -332,7 +332,7 @@
                 }
                 return filtered;
             }
-            // Live Telemetry: EMA Filter for a single point
+             // Live Telemetry: EMA Filter for a single point
             function emaFilterSinglePoint(key, newValue) {
                 if(typeof newValue !== 'number' || newValue === null) {
                     newValue = lastFilteredValues[key] || 0; // Use last good value if current is bad
@@ -354,6 +354,7 @@
                 return velocities;
             }
              // Live Telemetry: Calculate single velocity point
+            // let lastRawAltitude = 0; // Moved to state variables
             function calculateSingleVelocity(newRawAltitude) {
                 const velocity = newRawAltitude - lastRawAltitude;
                 lastRawAltitude = newRawAltitude; // Update last altitude
@@ -509,6 +510,9 @@
             };
 
             const updateButtonStates = () => {
+                 // Live Telemetry: Don't update playback buttons if in live mode
+                 if (isLiveMode) return; 
+
                  const currentAbsoluteIndex = currentIndex + cropPoint;
                  rewindBtn.disabled = currentAbsoluteIndex <= 0;
                  forwardBtn.disabled = currentAbsoluteIndex >= telemetryData.length;
@@ -523,6 +527,12 @@
                 telemetryData = [];
                 filteredTelemetryData = [];
                 cropPoint = 0; // Reset crop point
+                
+                // Live Telemetry: Reset Live Mode specific state
+                isLiveMode = false; 
+                liveDataCounter = 0; 
+                lastFilteredValues = {}; 
+                lastRawAltitude = 0; 
                 
                 [downloadCsvButton, dataModeButton].forEach(btn => btn.disabled = true);
                 resetCharts();
@@ -541,7 +551,7 @@
                 currentIndex = 0;
                 dataDisplayMode = 'filtered';
 
-                 // Reset Live button text
+                 // Reset Live button text and style
                  liveModeBtn.textContent = 'Live : Off';
                  liveModeBtn.classList.remove('bg-red-600', 'hover:bg-red-700', 'live-on');
                  liveModeBtn.classList.add('bg-green-600', 'hover:bg-green-700');
@@ -554,6 +564,7 @@
             csvInput.addEventListener('change', (e) => e.target.files[0] && handleCsvFile(e.target.files[0]));
 
             const handleZipFile = (file) => {
+                if (isLiveMode) toggleLiveMode(); // Turn off live mode if loading a file
                 resetState();
                 JSZip.loadAsync(file).then(zip => {
                     let csvFound = false;
@@ -590,6 +601,7 @@
             };
 
             const handleCsvFile = (file) => {
+                if (isLiveMode) toggleLiveMode(); // Turn off live mode if loading a file
                 resetState();
                 const reader = new FileReader();
                 reader.onload = (e) => parseAndPlotData(e.target.result);
@@ -648,6 +660,53 @@
                 pushData(charts.rotation, [{ name: 'Auto Rotation 1', index: 0 }, { name: 'Auto Rotation 2', index: 1 }]);
             };
             
+             // Live Telemetry: Function to plot a single live data point
+            const plotSingleLivePoint = (rawRow, filteredRow) => {
+                const label = liveDataCounter++; // Use a simple counter for labels
+
+                const pushLiveData = (chart, keys) => {
+                    chart.data.labels.push(label);
+                     // Optional: Limit history length in live mode
+                     const maxLivePoints = 100; // Keep last 100 points
+                     if(chart.data.labels.length > maxLivePoints) {
+                         chart.data.labels.shift();
+                     }
+
+                    keys.forEach(key => {
+                        if (chart.data.datasets[key.index * 2] && chart.data.datasets[key.index * 2 + 1]) {
+                             chart.data.datasets[key.index * 2].data.push(filteredRow[key.name]);
+                             chart.data.datasets[key.index * 2 + 1].data.push(rawRow[key.name]);
+                             // Optional: Limit history length
+                             if(chart.data.datasets[key.index * 2].data.length > maxLivePoints) {
+                                 chart.data.datasets[key.index * 2].data.shift();
+                                 chart.data.datasets[key.index * 2 + 1].data.shift();
+                             }
+                        }
+                    });
+                };
+                
+                pushLiveData(charts.altitude, [{ name: 'Altitude', index: 0 }]);
+                pushLiveData(charts.pressure, [{ name: 'Pressure', index: 0 }]);
+                pushLiveData(charts.velocity, [{ name: 'Velocity', index: 0 }]);
+                pushLiveData(charts.temp, [{ name: 'Temperature', index: 0 }]);
+                pushLiveData(charts.voltage, [{ name: 'Voltage', index: 0 }]);
+                pushLiveData(charts.gyro, [{ name: 'Gyro Roll', index: 0 }, { name: 'Gyro Pitch', index: 1 }, { name: 'Gyro Yaw', index: 2 }]);
+                pushLiveData(charts.accel, [{ name: 'Accel Roll', index: 0 }, { name: 'Accel Pitch', index: 1 }, { name: 'Accel Yaw', index: 2 }]);
+                pushLiveData(charts.rotation, [{ name: 'Auto Rotation 1', index: 0 }, { name: 'Auto Rotation 2', index: 1 }]);
+
+                 Object.values(charts).forEach(chart => chart.update());
+
+                 // Tilt Animation Update
+                if (tiltIndicator) {
+                    const tiltAngle = Math.sqrt(filteredRow['Gyro Roll']**2 + filteredRow['Gyro Pitch']**2);
+                    const direction = filteredRow['Gyro Roll'] > 0 ? 1 : -1;
+                    // Apply animation directly here for live data
+                    tiltIndicator.style.transition = 'transform 0.1s linear'; // Faster transition for live
+                    tiltIndicator.style.transform = `rotate(${tiltAngle * direction}deg)`;
+                }
+            };
+
+
             const plotNextPoint = () => {
                 const absoluteIndex = currentIndex + cropPoint;
                 if (isPaused || absoluteIndex >= telemetryData.length) {
@@ -662,6 +721,8 @@
                     const currentRawData = telemetryData[absoluteIndex];
                     const tiltAngle = currentRawData.tilt;
                     const direction = currentRawData.gyroX_direction > 0 ? 1 : -1;
+                     // Ensure slower transition for playback
+                    tiltIndicator.style.transition = 'transform 1s linear'; 
                     tiltIndicator.style.transform = `rotate(${tiltAngle * direction}deg)`;
                 }
 
@@ -702,16 +763,19 @@
             };
             
             const startPlotting = () => {
+                // Live Telemetry: Don't start interval timer in live mode
+                if (isLiveMode) return; 
                 if (plotInterval) clearInterval(plotInterval);
                 plotInterval = setInterval(plotNextPoint, 1000 / playbackSpeed);
             };
 
             const stopPlotting = (finished = false) => {
-                clearInterval(plotInterval);
+                 // Live Telemetry: Don't clear interval if it wasn't set (i.e., in live mode)
+                if (plotInterval) clearInterval(plotInterval); 
                 plotInterval = null;
                 isPaused = true;
                 playPauseBtn.textContent = 'Play';
-                if (finished) {
+                if (finished && !isLiveMode) { // Only show finished/replay if not live
                     playPauseBtn.textContent = 'Finished';
                     playPauseBtn.disabled = true;
                     endBtn.textContent = 'Replay';
@@ -725,6 +789,9 @@
             const getVideos = () => [videoUpContainer.querySelector('video')].filter(Boolean); 
 
             const togglePlayPause = () => {
+                 // Live Telemetry: Don't allow play/pause in live mode
+                 if (isLiveMode) return; 
+
                 const absoluteIndex = currentIndex + cropPoint;
                 if (telemetryData.length === 0 || absoluteIndex >= telemetryData.length) return;
                 isPaused = !isPaused;
@@ -744,6 +811,9 @@
             };
             
             const seek = (seconds) => {
+                 // Live Telemetry: Don't allow seeking in live mode
+                 if (isLiveMode) return; 
+
                 if (telemetryData.length === 0) return;
                 
                 const currentAbsoluteIndex = currentIndex + cropPoint;
@@ -778,6 +848,9 @@
             };
 
             const seekToEnd = () => {
+                 // Live Telemetry: Don't allow seek to end in live mode
+                 if (isLiveMode) return; 
+
                 if (telemetryData.length === 0) return;
                 const absoluteEndIndex = telemetryData.length;
                 
@@ -796,6 +869,9 @@
             };
             
             const replayPlayback = () => {
+                 // Live Telemetry: Don't allow replay in live mode
+                 if (isLiveMode) return; 
+
                 stopPlotting();
                 currentIndex = 0; // Reset relative index
                 cropPoint = 0; // Reset crop point
@@ -811,6 +887,9 @@
 
              // Crop Functionality (Visual Reset)
             const cropData = () => {
+                // Live Telemetry: Don't allow cropping in live mode
+                if (isLiveMode) return;
+
                 const absoluteIndex = currentIndex + cropPoint;
                 if (telemetryData.length === 0 || absoluteIndex <= 0 || absoluteIndex >= telemetryData.length) return; 
 
@@ -845,6 +924,9 @@
 
             const handleEndReplayClick = () => { endBtn.textContent === 'End' ? seekToEnd() : replayPlayback(); };
             const changeSpeed = () => {
+                // Live Telemetry: Don't allow speed change in live mode
+                if (isLiveMode) return; 
+                
                 if(telemetryData.length === 0) return;
                 playbackSpeed = playbackSpeed === 1 ? 2 : 1;
                 speedBtn.textContent = `${playbackSpeed}x`;
@@ -852,20 +934,79 @@
                 if (!isPaused) startPlotting(); // Restart plotting interval with new speed
             };
 
-            // --- MQTT Setup (Simplified for Blink only) ---
+            // --- MQTT Setup ---
             const brokerAddress = 'wss://broker.hivemq.com:8884/mqtt'; 
-            const commandTopic = 'Aerobits'; // Topic for blink command
+            const dataTopic = 'Aerobits/data'; // Live Telemetry: Topic for incoming data
+            const commandTopic = 'Aerobits'; // Corrected topic for blink command
 
             const client = mqtt.connect(brokerAddress);
 
             client.on('connect', () => {
-                console.log('Connected to MQTT broker for commands!');
+                console.log('Connected to MQTT broker!');
                 blinkBtn.disabled = false; 
+                // Live Telemetry: Subscribe to data topic on connect
+                client.subscribe(dataTopic, (err) => {
+                    if (!err) {
+                        console.log(`Subscribed to ${dataTopic}`);
+                    } else {
+                         console.error(`Failed to subscribe to ${dataTopic}:`, err);
+                    }
+                });
             });
 
             client.on('error', (err) => {
                 console.error('MQTT Connection Error:', err);
-                // blinkBtn.disabled = true; 
+                 // blinkBtn.disabled = true; 
+            });
+
+            // Live Telemetry: Handle incoming messages
+             client.on('message', (topic, message) => {
+                if (topic === dataTopic && isLiveMode) {
+                    try {
+                        const messageString = message.toString();
+                        const values = messageString.split(',').map(Number); // [Temp, Press, Volt, gyro r, p, y, acc r,p,y, auto rot 1, auto rot 2]
+                        
+                        if (values.length >= 11) {
+                            const P0 = 101325;
+                            const liveRawRow = {
+                                'Temperature': values[0],
+                                'Pressure': values[1],
+                                'Voltage': values[2],
+                                'Gyro Roll': values[3],
+                                'Gyro Pitch': values[4],
+                                'Gyro Yaw': values[5],
+                                'Accel Roll': values[6],
+                                'Accel Pitch': values[7],
+                                'Accel Yaw': values[8],
+                                'Auto Rotation 1': values[9],
+                                'Auto Rotation 2': values[10],
+                            };
+
+                            // Calculate derived raw values
+                            liveRawRow['Altitude'] = (liveRawRow['Pressure'] === null || liveRawRow['Pressure'] <= 0) ? 0 : 44330 * (1 - Math.pow(liveRawRow['Pressure'] / P0, 1 / 5.255));
+                            liveRawRow['Velocity'] = calculateSingleVelocity(liveRawRow['Altitude']); // Use live velocity calc
+
+                            // Calculate filtered values for this point
+                            const liveFilteredRow = {};
+                            const keysToFilter = ['Pressure', 'Altitude', 'Velocity', 'Temperature', 'Voltage', 'Gyro Roll', 'Gyro Pitch', 'Gyro Yaw', 'Accel Roll', 'Accel Pitch', 'Accel Yaw', 'Auto Rotation 1', 'Auto Rotation 2'];
+                            keysToFilter.forEach(key => {
+                                 liveFilteredRow[key] = emaFilterSinglePoint(key, liveRawRow[key]);
+                            });
+                             // Calculate tilt based on filtered live values
+                            const gyroX_f = liveFilteredRow['Gyro Roll'] || 0;
+                            const gyroY_f = liveFilteredRow['Gyro Pitch'] || 0;
+                            liveFilteredRow.tilt = Math.sqrt(gyroX_f**2 + gyroY_f**2);
+                            liveFilteredRow.gyroX_direction = gyroX_f;
+
+
+                            plotSingleLivePoint(liveRawRow, liveFilteredRow);
+                        } else {
+                            console.warn("Received MQTT message with incorrect number of values:", messageString);
+                        }
+                    } catch (e) {
+                        console.error("Error processing MQTT message:", e);
+                    }
+                }
             });
 
 
@@ -878,21 +1019,26 @@
                 }
             }
 
-            // Toggle Live Mode Button Text (Simplified, no MQTT actions)
+            // Live Telemetry: Toggle Live Mode Button Functionality
             const toggleLiveMode = () => {
-                 // Determine if switching TO live mode
-                const activatingLive = liveModeBtn.textContent === 'Live : Off';
+                isLiveMode = !isLiveMode; // Toggle the state
 
-                if (activatingLive) {
+                if (isLiveMode) {
                     liveModeBtn.textContent = 'Live : On';
                     liveModeBtn.classList.remove('bg-green-600', 'hover:bg-green-700');
                     liveModeBtn.classList.add('bg-red-600', 'hover:bg-red-700', 'live-on');
-                    console.log("Live mode ON (placeholder)");
                     
-                    // Stop playback if running, store state
-                    const wasPausedBeforeLive = isPaused;
-                    stopPlotting(); 
-                    
+                    // Stop playback if running, clear data
+                    stopPlotting();
+                    currentIndex = 0;
+                    cropPoint = 0;
+                    telemetryData = []; // Clear playback data
+                    filteredTelemetryData = []; // Clear playback data
+                    resetCharts();
+                    liveDataCounter = 0; // Reset live counter
+                    lastFilteredValues = {}; // Reset EMA state
+                    lastRawAltitude = 0; // Reset velocity state
+
                     // Disable irrelevant controls
                     [uploadButton, uploadCsvButton, downloadCsvButton, rewindBtn, playPauseBtn, forwardBtn, speedBtn, endBtn, cropBtn, dataModeButton].forEach(btn => btn.disabled = true);
                     getVideos().forEach(v => v.pause()); // Pause video if playing
@@ -901,12 +1047,12 @@
                     liveModeBtn.textContent = 'Live : Off';
                      liveModeBtn.classList.remove('bg-red-600', 'hover:bg-red-700', 'live-on');
                      liveModeBtn.classList.add('bg-green-600', 'hover:bg-green-700');
-                    console.log("Live mode OFF (placeholder)");
-                     // Re-enable controls
+                    
+                    // Re-enable controls (they might still be disabled if no file was loaded before)
                     [uploadButton, uploadCsvButton].forEach(btn => btn.disabled = false);
-                    const hasFileData = telemetryData.length > 0;
-                    [downloadCsvButton, dataModeButton, rewindBtn, playPauseBtn, forwardBtn, speedBtn, endBtn, cropBtn].forEach(btn => btn.disabled = !hasFileData);
-                    updateButtonStates();
+                    // Buttons remain disabled until a file is loaded again
+                    [downloadCsvButton, dataModeButton, rewindBtn, playPauseBtn, forwardBtn, speedBtn, endBtn, cropBtn].forEach(btn => btn.disabled = true);
+                     updateButtonStates(); // Ensure correct enabled/disabled state
                 }
             }
 
@@ -944,6 +1090,11 @@
             liveModeBtn.addEventListener('click', toggleLiveMode); // Add click listener for Live button
 
             downloadCsvButton.addEventListener('click', () => {
+                 // Live Telemetry: Disable download in live mode
+                 if (isLiveMode) {
+                     console.log("Download disabled in Live Mode.");
+                     return; 
+                 }
                 if (!telemetryData || telemetryData.length === 0) return;
 
                 let dataToDownload;
@@ -1107,6 +1258,8 @@
             document.querySelectorAll('.chart-wrapper').forEach(wrapper => {
                 if (wrapper.querySelector('canvas')) { // Only add click to chart wrappers
                     wrapper.addEventListener('click', () => {
+                        // if(isLiveMode) return; // Don't open modal in live mode
+
                         const canvasId = wrapper.querySelector('canvas').id;
                         const originalChart = charts[canvasId.replace('-chart', '')];
                         if (originalChart && telemetryData.length > 0) {
@@ -1143,7 +1296,7 @@
                                 const multiKeyMap = { Roll: 'Gyro Roll', Pitch: 'Gyro Pitch', Yaw: 'Gyro Yaw', X: 'Accel Roll', Y: 'Accel Pitch', Z: 'Accel Yaw', AutoGyro1: 'Auto Rotation 1', AutoGyro2: 'Auto Rotation 2'};
                                 let dataFieldName = keyMap[dataKey] || multiKeyMap[dataKey];
 
-                                const slicedData = dataArray.slice(startIndex, endIndex).map(row => row ? row[dataFieldName] : null); // Add safety check
+                                const slicedData = dataArray.slice(startIndex, endIndex).map(row => row[dataFieldName]);
                                 
                                 modalData.datasets.push({
                                     ...originalDs, // Copy style properties
