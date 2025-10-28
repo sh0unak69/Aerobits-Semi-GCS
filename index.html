@@ -773,11 +773,11 @@
             const toggleLiveMode = () => {
                 if (liveModeBtn.textContent === 'Live : Off') {
                     liveModeBtn.textContent = 'Live : On';
-                    // Add logic to start live mode here later
+                    client.publish(topic, "1");
                     console.log("Live mode ON");
                 } else {
                     liveModeBtn.textContent = 'Live : Off';
-                    // Add logic to stop live mode here later
+                    client.publish(topic, "2");
                     console.log("Live mode OFF");
                 }
             }
@@ -1046,4 +1046,5 @@
     </script>
 </body>
 </html>
+
 
