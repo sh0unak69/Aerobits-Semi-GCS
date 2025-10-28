@@ -848,13 +848,13 @@
             });
 
             client.on('message', (top, message) => {
-                console.log("Packet Received");
+                // console.log("Packet Received");
                 if(top === topicData){
                         console.log("Packet Received");
                         const msg = message.toString();
-                        const dataArray = (msg.split(","));
-
-                        console.log(dataArray);
+                        const strArr = (msg.split(","));
+                        const dataArr = strArr.map(Number);
+                        console.log(dataArr);
                 }
             })
 
@@ -1202,6 +1202,7 @@
     </script>
 </body>
 </html>
+
 
 
 
