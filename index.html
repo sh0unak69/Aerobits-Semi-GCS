@@ -842,6 +842,7 @@
 
             client.on('message', (top, message) => {
                 if(top === topicData){
+                        console.log("Packet Received");
                         const msg = message.toString();
                         const dataArray =  stringArray.map(msg.split(","));
 
@@ -1193,4 +1194,5 @@
     </script>
 </body>
 </html>
+
 
