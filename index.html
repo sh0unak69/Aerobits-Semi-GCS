@@ -841,6 +841,7 @@
             });
 
             client.on('message', (top, message) => {
+                console.log("Packet Received");
                 if(top === topicData){
                         console.log("Packet Received");
                         const msg = message.toString();
@@ -1194,5 +1195,6 @@
     </script>
 </body>
 </html>
+
 
 
