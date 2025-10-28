@@ -153,6 +153,11 @@
         #tilt-indicator {
             transition: transform 1s linear;
         }
+         /* Style for Live Mode Button */
+        #live-mode-btn.live-on {
+            background-color: #dc2626; /* Red when live */
+            hover:bg-red-700;
+        }
     </style>
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 </head>
@@ -308,6 +313,10 @@
             let isPaused = true;
             let playbackSpeed = 1;
             let dataDisplayMode = 'filtered'; // 'filtered', 'raw', 'compare'
+            let isLiveMode = false; // Live Telemetry: Flag for live mode
+            let liveDataCounter = 0; // Live Telemetry: Counter for live data points
+            let lastFilteredValues = {}; // Live Telemetry: Store last filtered values for EMA continuity
+            let lastRawAltitude = 0; // Live Telemetry: Store last raw altitude for live velocity calc
             
             // EMA Filter function
             const alpha = 0.2;
@@ -323,6 +332,16 @@
                 }
                 return filtered;
             }
+            // Live Telemetry: EMA Filter for a single point
+            function emaFilterSinglePoint(key, newValue) {
+                if(typeof newValue !== 'number' || newValue === null) {
+                    newValue = lastFilteredValues[key] || 0; // Use last good value if current is bad
+                }
+                const prevFiltered = lastFilteredValues[key] || newValue; // Use newValue if it's the first point
+                const filteredValue = alpha * newValue + (1 - alpha) * prevFiltered;
+                lastFilteredValues[key] = filteredValue; // Update last value
+                return filteredValue;
+            }
 
             // Simple velocity calculation from altitude
             function velocityCalculator(altitudeData) {
@@ -333,6 +352,12 @@
                     velocities.push(velocity);
                 }
                 return velocities;
+            }
+             // Live Telemetry: Calculate single velocity point
+            function calculateSingleVelocity(newRawAltitude) {
+                const velocity = newRawAltitude - lastRawAltitude;
+                lastRawAltitude = newRawAltitude; // Update last altitude
+                return velocity;
             }
 
             // Refactored data processing function
@@ -498,11 +523,11 @@
                 telemetryData = [];
                 filteredTelemetryData = [];
                 cropPoint = 0; // Reset crop point
+                
                 [downloadCsvButton, dataModeButton].forEach(btn => btn.disabled = true);
                 resetCharts();
                 videoUpContainer.innerHTML = '<span>Video Player</span>'; // Updated placeholder
                 fullscreenBtn.style.display = 'none'; // Hide fullscreen button
-                // videoDownContainer.innerHTML = '<span>Down Video</span>'; // Removed
                 if(tiltIndicator) tiltIndicator.style.transform = 'rotate(0deg)';
                 
                  // Only disable playback controls on reset, keep blink enabled
@@ -515,6 +540,11 @@
                 playbackSpeed = 1;
                 currentIndex = 0;
                 dataDisplayMode = 'filtered';
+
+                 // Reset Live button text
+                 liveModeBtn.textContent = 'Live : Off';
+                 liveModeBtn.classList.remove('bg-red-600', 'hover:bg-red-700', 'live-on');
+                 liveModeBtn.classList.add('bg-green-600', 'hover:bg-green-700');
             };
 
             // File Handling
@@ -822,62 +852,61 @@
                 if (!isPaused) startPlotting(); // Restart plotting interval with new speed
             };
 
+            // --- MQTT Setup (Simplified for Blink only) ---
             const brokerAddress = 'wss://broker.hivemq.com:8884/mqtt'; 
-            const topic = 'Aerobits'; // Corrected topic
-            const topicData = 'Aerobits/data';
+            const commandTopic = 'Aerobits'; // Topic for blink command
 
             const client = mqtt.connect(brokerAddress);
 
             client.on('connect', () => {
-                console.log('Connected to broker!');
-                blinkBtn.disabled = false; // Enable blink button on successful connection
-                // liveModeBtn is enabled by default, no need to enable here unless initially disabled
-                client.subscribe(topicData, (err) => {
-                    if (!err) {
-                        console.log(`Successfully subscribed to ${topicData}`);
-                    } else {
-                        console.error('Subscribe error:', err);
-                    }
-                });
+                console.log('Connected to MQTT broker for commands!');
+                blinkBtn.disabled = false; 
             });
 
             client.on('error', (err) => {
                 console.error('MQTT Connection Error:', err);
-                 // Optionally disable the blink button again if connection fails
                 // blinkBtn.disabled = true; 
             });
-
-            client.on('message', (top, message) => {
-                if(top === topicData){
-                        const msg = message.toString();
-                        const strArr = (msg.split(","));
-                        const dataArr = strArr.map(Number);
-                        console.log(dataArr);
-                }
-            })
 
 
             const blinkLED = () => {
                 if (client && client.connected) {
-                    client.publish(topic, "0");
-                    console.log(`Published "0" to topic "${topic}"`);
+                    client.publish(commandTopic, "0");
+                    console.log(`Published "0" to topic "${commandTopic}"`);
                 } else {
                     console.error("MQTT client not connected. Cannot publish message.");
-                    // Optionally try to reconnect or provide user feedback
                 }
             }
 
-
-            // Toggle Live Mode Button Text
+            // Toggle Live Mode Button Text (Simplified, no MQTT actions)
             const toggleLiveMode = () => {
-                if (liveModeBtn.textContent === 'Live : Off') {
+                 // Determine if switching TO live mode
+                const activatingLive = liveModeBtn.textContent === 'Live : Off';
+
+                if (activatingLive) {
                     liveModeBtn.textContent = 'Live : On';
-                    client.publish(topic, "1");
-                    console.log("Live mode ON");
+                    liveModeBtn.classList.remove('bg-green-600', 'hover:bg-green-700');
+                    liveModeBtn.classList.add('bg-red-600', 'hover:bg-red-700', 'live-on');
+                    console.log("Live mode ON (placeholder)");
+                    
+                    // Stop playback if running, store state
+                    const wasPausedBeforeLive = isPaused;
+                    stopPlotting(); 
+                    
+                    // Disable irrelevant controls
+                    [uploadButton, uploadCsvButton, downloadCsvButton, rewindBtn, playPauseBtn, forwardBtn, speedBtn, endBtn, cropBtn, dataModeButton].forEach(btn => btn.disabled = true);
+                    getVideos().forEach(v => v.pause()); // Pause video if playing
+
                 } else {
                     liveModeBtn.textContent = 'Live : Off';
-                    client.publish(topic, "2");
-                    console.log("Live mode OFF");
+                     liveModeBtn.classList.remove('bg-red-600', 'hover:bg-red-700', 'live-on');
+                     liveModeBtn.classList.add('bg-green-600', 'hover:bg-green-700');
+                    console.log("Live mode OFF (placeholder)");
+                     // Re-enable controls
+                    [uploadButton, uploadCsvButton].forEach(btn => btn.disabled = false);
+                    const hasFileData = telemetryData.length > 0;
+                    [downloadCsvButton, dataModeButton, rewindBtn, playPauseBtn, forwardBtn, speedBtn, endBtn, cropBtn].forEach(btn => btn.disabled = !hasFileData);
+                    updateButtonStates();
                 }
             }
 
@@ -994,7 +1023,7 @@
                          const multiKeyMap = { Roll: 'Gyro Roll', Pitch: 'Gyro Pitch', Yaw: 'Gyro Yaw', X: 'Accel Roll', Y: 'Accel Pitch', Z: 'Accel Yaw', AutoGyro1: 'Auto Rotation 1', AutoGyro2: 'Auto Rotation 2'};
                          let dataFieldName = keyMap[dataKey] || multiKeyMap[dataKey];
 
-                         const slicedData = dataArray.slice(startIndex, endIndex).map(row => row[dataFieldName]);
+                         const slicedData = dataArray.slice(startIndex, endIndex).map(row => row ? row[dataFieldName] : null); // Add safety check for row
                         
                          modalData.datasets.push({
                             ...originalDs, // Copy style properties
@@ -1114,7 +1143,7 @@
                                 const multiKeyMap = { Roll: 'Gyro Roll', Pitch: 'Gyro Pitch', Yaw: 'Gyro Yaw', X: 'Accel Roll', Y: 'Accel Pitch', Z: 'Accel Yaw', AutoGyro1: 'Auto Rotation 1', AutoGyro2: 'Auto Rotation 2'};
                                 let dataFieldName = keyMap[dataKey] || multiKeyMap[dataKey];
 
-                                const slicedData = dataArray.slice(startIndex, endIndex).map(row => row[dataFieldName]);
+                                const slicedData = dataArray.slice(startIndex, endIndex).map(row => row ? row[dataFieldName] : null); // Add safety check
                                 
                                 modalData.datasets.push({
                                     ...originalDs, // Copy style properties
@@ -1200,10 +1229,4 @@
     </script>
 </body>
 </html>
-
-
-
-
-
-
 
