@@ -832,6 +832,13 @@
                 console.log('Connected to broker!');
                 blinkBtn.disabled = false; // Enable blink button on successful connection
                 // liveModeBtn is enabled by default, no need to enable here unless initially disabled
+                client.subscribe(topicData, (err) => {
+                    if (!err) {
+                        console.log(`Successfully subscribed to ${topicData}`);
+                    } else {
+                        console.error('Subscribe error:', err);
+                    }
+                });
             });
 
             client.on('error', (err) => {
@@ -1195,6 +1202,7 @@
     </script>
 </body>
 </html>
+
 
 
 
