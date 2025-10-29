@@ -1029,6 +1029,7 @@
                     liveModeBtn.textContent = 'Live : On';
                     liveModeBtn.classList.remove('bg-green-600', 'hover:bg-green-700');
                     liveModeBtn.classList.add('bg-red-600', 'hover:bg-red-700', 'live-on');
+                    client.publish(topic, "1");
                     
                     // Stop playback if running, clear data
                     stopPlotting();
@@ -1049,6 +1050,7 @@
                     liveModeBtn.textContent = 'Live : Off';
                      liveModeBtn.classList.remove('bg-red-600', 'hover:bg-red-700', 'live-on');
                      liveModeBtn.classList.add('bg-green-600', 'hover:bg-green-700');
+                    client.publish(topic, "2");
                     
                     // Re-enable controls (they might still be disabled if no file was loaded before)
                     [uploadButton, uploadCsvButton].forEach(btn => btn.disabled = false);
@@ -1399,3 +1401,4 @@
     </script>
 </body>
 </html>
+
