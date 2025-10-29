@@ -963,11 +963,11 @@
              client.on('message', (topic, message) => {
                 if (topic === dataTopic && isLiveMode) {
                     try {
-                        const messageString = message.toString();
+                        const messageString. = message.toString();
                         const values = messageString.split(',').map(Number); // [Temp, Press, Volt, gyro r, p, y, acc r,p,y, auto rot 1, auto rot 2]
                         
                         if (values.length >= 11) {
-                            const P0 = 101325;
+                            const P0 = 1013.25;
                             const liveRawRow = {
                                 'Temperature': values[0],
                                 'Pressure': values[1],
@@ -1384,6 +1384,7 @@
     </script>
 </body>
 </html>
+
 
 
 
