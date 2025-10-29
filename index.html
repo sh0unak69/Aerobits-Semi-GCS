@@ -995,7 +995,8 @@
                                 'Auto Rotation 2': values[10],
                             };
 
-                            // Calculate derived raw values                        
+                            // Calculate derived raw values          
+                            const pressureHpa = liveRawRow['Pressure'] / 1.0;
                             liveRawRow['Altitude'] = (pressureHpa === null || pressureHpa <= 0) ? 0 : 44330 * (1 - Math.pow(liveRawRow['Pressure'] / P0, 1 / 5.255));
                             liveRawRow['Velocity'] = calculateSingleVelocity(liveRawRow['Altitude']); // Use live velocity calc
 
@@ -1428,5 +1429,6 @@
     </script>
 </body>
 </html>
+
 
 
