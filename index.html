@@ -372,7 +372,7 @@
                 for (let i = 0; i < rawCsvData.length; i++) {
                     const newRow = { ...rawCsvData[i] };
                     const pressure = newRow['Pressure'];
-                    newRow['Altitude'] = (pressure === null || pressure <= 0) ? 0 : 44.330 * (1 - Math.pow(pressure / P0, 1 / 5.255));
+                    newRow['Altitude'] = (pressure === null || pressure <= 0) ? 0 : 44330 * (1 - Math.pow(pressure / P0, 1 / 5.255));
                     rawAltitudes.push(newRow['Altitude']);
                     rawDerivedData.push(newRow);
                 }
@@ -963,23 +963,25 @@
              client.on('message', (topic, message) => {
                 if (topic === dataTopic && isLiveMode) {
                     try {
-                        const messageString. = message.toString();
+                        const messageString = message.toString();
                         const values = messageString.split(',').map(Number); // [Temp, Press, Volt, gyro r, p, y, acc r,p,y, auto rot 1, auto rot 2]
-                        
+                         const dataArr = values; // Store in dataArr as requested
+                         console.log(dataArr); // Log the received array
+
                         if (values.length >= 11) {
                             const P0 = 1013.25;
                             const liveRawRow = {
-                                'Temperature': values[0],
-                                'Pressure': values[1],
-                                'Voltage': values[2],
-                                'Gyro Roll': values[3],
-                                'Gyro Pitch': values[4],
-                                'Gyro Yaw': values[5],
-                                'Accel Roll': values[6],
-                                'Accel Pitch': values[7],
-                                'Accel Yaw': values[8],
-                                'Auto Rotation 1': values[9],
-                                'Auto Rotation 2': values[10],
+                                'Temperature': dataArr[0],
+                                'Pressure': dataArr[1],
+                                'Voltage': dataArr[2],
+                                'Gyro Roll': dataArr[3],
+                                'Gyro Pitch': dataArr[4],
+                                'Gyro Yaw': dataArr[5],
+                                'Accel Roll': dataArr[6],
+                                'Accel Pitch': dataArr[7],
+                                'Accel Yaw': dataArr[8],
+                                'Auto Rotation 1': dataArr[9],
+                                'Auto Rotation 2': dataArr[10],
                             };
 
                             // Calculate derived raw values
@@ -1027,7 +1029,6 @@
                     liveModeBtn.textContent = 'Live : On';
                     liveModeBtn.classList.remove('bg-green-600', 'hover:bg-green-700');
                     liveModeBtn.classList.add('bg-red-600', 'hover:bg-red-700', 'live-on');
-                    client.publish(commandTopic, "1");
                     
                     // Stop playback if running, clear data
                     stopPlotting();
@@ -1048,7 +1049,6 @@
                     liveModeBtn.textContent = 'Live : Off';
                      liveModeBtn.classList.remove('bg-red-600', 'hover:bg-red-700', 'live-on');
                      liveModeBtn.classList.add('bg-green-600', 'hover:bg-green-700');
-                    client.publish(commandTopic, "2");
                     
                     // Re-enable controls (they might still be disabled if no file was loaded before)
                     [uploadButton, uploadCsvButton].forEach(btn => btn.disabled = false);
@@ -1264,7 +1264,7 @@
 
                         const canvasId = wrapper.querySelector('canvas').id;
                         const originalChart = charts[canvasId.replace('-chart', '')];
-                        if (originalChart && telemetryData.length > 0) {
+                        if (originalChart && (telemetryData.length > 0 || isLiveMode)) { // Allow modal if live data has arrived
                             if (modalChartInstance) modalChartInstance.destroy();
                             
                             const modalOptions = JSON.parse(JSON.stringify(originalChart.options));
@@ -1280,14 +1280,23 @@
                             };
                             modalTitle.textContent = originalChart.options.plugins.title.text;
 
-                            // Build modal data based on current state (cropPoint, currentIndex)
+                            // Build modal data based on current state (cropPoint, currentIndex OR live data)
                             const modalData = { labels: [], datasets: [] };
-                            const startIndex = cropPoint;
-                            const endIndex = currentIndex + cropPoint;
                             
-                            for(let i = startIndex; i < endIndex; i++) {
-                                modalData.labels.push(i - startIndex); // Relative labels
-                            }
+                            // Determine the data range for the modal
+                             let startIndex, endIndex;
+                             let sourceLabels;
+                             if (isLiveMode) {
+                                 sourceLabels = originalChart.data.labels; // Use labels from live chart
+                                 startIndex = 0; // Show all available live data in modal
+                                 endIndex = sourceLabels.length;
+                             } else {
+                                 startIndex = cropPoint;
+                                 endIndex = currentIndex + cropPoint;
+                                 sourceLabels = Array.from({length: currentIndex}, (_, i) => i); // Generate relative labels
+                             }
+
+                            modalData.labels = sourceLabels;
 
                              originalChart.data.datasets.forEach((originalDs, dsIndex) => {
                                 const isRaw = dsIndex % 2 !== 0;
@@ -1298,7 +1307,13 @@
                                 const multiKeyMap = { Roll: 'Gyro Roll', Pitch: 'Gyro Pitch', Yaw: 'Gyro Yaw', X: 'Accel Roll', Y: 'Accel Pitch', Z: 'Accel Yaw', AutoGyro1: 'Auto Rotation 1', AutoGyro2: 'Auto Rotation 2'};
                                 let dataFieldName = keyMap[dataKey] || multiKeyMap[dataKey];
 
-                                const slicedData = dataArray.slice(startIndex, endIndex).map(row => row[dataFieldName]);
+                                let slicedData;
+                                if (isLiveMode) {
+                                    // In live mode, just copy the current data from the main chart
+                                    slicedData = originalDs.data.slice(); 
+                                } else {
+                                     slicedData = dataArray.slice(startIndex, endIndex).map(row => row ? row[dataFieldName] : null); // Add safety check for row
+                                }
                                 
                                 modalData.datasets.push({
                                     ...originalDs, // Copy style properties
@@ -1384,8 +1399,4 @@
     </script>
 </body>
 </html>
-
-
-
-
 
