@@ -364,7 +364,7 @@
             // Refactored data processing function
             function processAndFilterData(rawCsvData) {
                 if (!rawCsvData || rawCsvData.length === 0) return { raw: [], filtered: [] };
-                const P0 = 101325;
+                const P0 = 1013.25;
 
                 // == STEP 1: Create the RAW dataset with derived values ==
                 const rawDerivedData = [];
@@ -372,7 +372,7 @@
                 for (let i = 0; i < rawCsvData.length; i++) {
                     const newRow = { ...rawCsvData[i] };
                     const pressure = newRow['Pressure'];
-                    newRow['Altitude'] = (pressure === null || pressure <= 0) ? 0 : 44330 * (1 - Math.pow(pressure / P0, 1 / 5.255));
+                    newRow['Altitude'] = (pressure === null || pressure <= 0) ? 0 : 44.330 * (1 - Math.pow(pressure / P0, 1 / 5.255));
                     rawAltitudes.push(newRow['Altitude']);
                     rawDerivedData.push(newRow);
                 }
@@ -1384,6 +1384,7 @@
     </script>
 </body>
 </html>
+
 
 
 
