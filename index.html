@@ -364,7 +364,7 @@
             // Refactored data processing function
             function processAndFilterData(rawCsvData) {
                 if (!rawCsvData || rawCsvData.length === 0) return { raw: [], filtered: [] };
-                const P0 = 1013.25;
+                const P0 = 1013.25; // Corrected P0 value (hPa)
 
                 // == STEP 1: Create the RAW dataset with derived values ==
                 const rawDerivedData = [];
@@ -372,9 +372,11 @@
                 for (let i = 0; i < rawCsvData.length; i++) {
                     const newRow = { ...rawCsvData[i] };
                     const pressure = newRow['Pressure'];
-                    newRow['Altitude'] = (pressure === null || pressure <= 0) ? 0 : 44330 * (1 - Math.pow(pressure / P0, 1 / 5.255));
+                     // Convert pressure from Pa to hPa if necessary, assuming CSV is in Pa
+                    const pressureHpa = pressure / 100.0; 
+                    newRow['Altitude'] = (pressureHpa === null || pressureHpa <= 0) ? 0 : 44330 * (1 - Math.pow(pressureHpa / P0, 1 / 5.255));
                     rawAltitudes.push(newRow['Altitude']);
-                    rawDerivedData.push(newRow);
+                    rawDerivedData.push(newRow); // Store original Pa pressure
                 }
                 
                 const rawVelocities = velocityCalculator(rawAltitudes);
@@ -534,14 +536,15 @@
                 lastFilteredValues = {}; 
                 lastRawAltitude = 0; 
                 
-                [downloadCsvButton, dataModeButton].forEach(btn => btn.disabled = true);
+                // Keep Data Mode enabled if live was active? Re-disable for now.
+                [downloadCsvButton, dataModeButton, cropBtn].forEach(btn => btn.disabled = true);
                 resetCharts();
                 videoUpContainer.innerHTML = '<span>Video Player</span>'; // Updated placeholder
                 fullscreenBtn.style.display = 'none'; // Hide fullscreen button
                 if(tiltIndicator) tiltIndicator.style.transform = 'rotate(0deg)';
                 
                  // Only disable playback controls on reset, keep blink enabled
-                [rewindBtn, playPauseBtn, forwardBtn, speedBtn, endBtn, cropBtn].forEach(btn => btn.disabled = true); // Added Crop button
+                [rewindBtn, playPauseBtn, forwardBtn, speedBtn, endBtn].forEach(btn => btn.disabled = true); 
                 playPauseBtn.textContent = 'Play';
                 speedBtn.textContent = '1x';
                 endBtn.textContent = 'End';
@@ -555,6 +558,8 @@
                  liveModeBtn.textContent = 'Live : Off';
                  liveModeBtn.classList.remove('bg-red-600', 'hover:bg-red-700', 'live-on');
                  liveModeBtn.classList.add('bg-green-600', 'hover:bg-green-700');
+                 // Ensure upload buttons are enabled when not in live mode after reset
+                 [uploadButton, uploadCsvButton].forEach(btn => btn.disabled = false);
             };
 
             // File Handling
@@ -564,7 +569,7 @@
             csvInput.addEventListener('change', (e) => e.target.files[0] && handleCsvFile(e.target.files[0]));
 
             const handleZipFile = (file) => {
-                if (isLiveMode) toggleLiveMode(); // Turn off live mode if loading a file
+                // if (isLiveMode) toggleLiveMode(); // Now handled by resetState if needed
                 resetState();
                 JSZip.loadAsync(file).then(zip => {
                     let csvFound = false;
@@ -601,7 +606,7 @@
             };
 
             const handleCsvFile = (file) => {
-                if (isLiveMode) toggleLiveMode(); // Turn off live mode if loading a file
+                // if (isLiveMode) toggleLiveMode(); // Handled by resetState
                 resetState();
                 const reader = new FileReader();
                 reader.onload = (e) => parseAndPlotData(e.target.result);
@@ -617,8 +622,8 @@
                         telemetryData = raw;
                         filteredTelemetryData = filtered;
                         [downloadCsvButton, dataModeButton].forEach(btn => btn.disabled = false);
-                        // Only enable playback controls here
-                        [rewindBtn, playPauseBtn, forwardBtn, speedBtn, endBtn, cropBtn].forEach(btn => btn.disabled = false); // Added cropBtn
+                        // Enable playback controls and Crop
+                        [rewindBtn, playPauseBtn, forwardBtn, speedBtn, endBtn, cropBtn].forEach(btn => btn.disabled = false); 
                         isPaused = true;
                         playPauseBtn.textContent = 'Play';
                         updateAllChartModes();
@@ -695,6 +700,7 @@
                 pushLiveData(charts.rotation, [{ name: 'Auto Rotation 1', index: 0 }, { name: 'Auto Rotation 2', index: 1 }]);
 
                  Object.values(charts).forEach(chart => chart.update());
+                 updateAllChartModes(); // Ensure mode visibility is correct for live data
 
                  // Tilt Animation Update
                 if (tiltIndicator) {
@@ -887,36 +893,43 @@
 
              // Crop Functionality (Visual Reset)
             const cropData = () => {
-                // Live Telemetry: Don't allow cropping in live mode
-                if (isLiveMode) return;
+                 if (isLiveMode) {
+                     // Live Mode: Clear current chart data and reset counters/state
+                     resetCharts();
+                     liveDataCounter = 0;
+                     lastFilteredValues = {};
+                     lastRawAltitude = 0;
+                     console.log("Live data view cleared.");
+                 } else {
+                    // File Playback Mode: Set crop point
+                    const absoluteIndex = currentIndex + cropPoint;
+                    if (telemetryData.length === 0 || absoluteIndex <= 0 || absoluteIndex >= telemetryData.length) return; 
 
-                const absoluteIndex = currentIndex + cropPoint;
-                if (telemetryData.length === 0 || absoluteIndex <= 0 || absoluteIndex >= telemetryData.length) return; 
+                    const wasPaused = isPaused;
+                    stopPlotting();
 
-                const wasPaused = isPaused;
-                stopPlotting();
+                    cropPoint = absoluteIndex; // Set the new crop starting point
+                    currentIndex = 0; // Reset the relative index
 
-                cropPoint = absoluteIndex; // Set the new crop starting point
-                currentIndex = 0; // Reset the relative index
+                    resetCharts(); // Clear visual charts
+                    
+                    // Set video time to the crop point
+                    const videoTime = cropPoint / playbackSpeed;
+                    getVideos().forEach(v => v.currentTime = videoTime);
 
-                resetCharts(); // Clear visual charts
-                
-                // Set video time to the crop point
-                 const videoTime = cropPoint / playbackSpeed;
-                 getVideos().forEach(v => v.currentTime = videoTime);
+                    updateButtonStates(); // Update buttons after cropping
 
-                updateButtonStates(); // Update buttons after cropping
-
-                 // If it was playing, resume from the new start
-                if (!wasPaused) {
-                   togglePlayPause();
-                } else {
-                     // If paused, update the tilt indicator to the new starting position
-                     if (tiltIndicator && telemetryData[cropPoint]) {
-                        const firstRawData = telemetryData[cropPoint];
-                        const tiltAngle = firstRawData.tilt;
-                        const direction = firstRawData.gyroX_direction > 0 ? 1 : -1;
-                        tiltIndicator.style.transform = `rotate(${tiltAngle * direction}deg)`;
+                    // If it was playing, resume from the new start
+                    if (!wasPaused) {
+                       togglePlayPause();
+                    } else {
+                         // If paused, update the tilt indicator to the new starting position
+                         if (tiltIndicator && telemetryData[cropPoint]) {
+                            const firstRawData = telemetryData[cropPoint];
+                            const tiltAngle = firstRawData.tilt;
+                            const direction = firstRawData.gyroX_direction > 0 ? 1 : -1;
+                            tiltIndicator.style.transform = `rotate(${tiltAngle * direction}deg)`;
+                        }
                     }
                 }
             };
@@ -965,27 +978,26 @@
                     try {
                         const messageString = message.toString();
                         const values = messageString.split(',').map(Number); // [Temp, Press, Volt, gyro r, p, y, acc r,p,y, auto rot 1, auto rot 2]
-                         const dataArr = values; // Store in dataArr as requested
-                         console.log(dataArr); // Log the received array
-
+                        
                         if (values.length >= 11) {
-                            const P0 = 1013.25;
+                            const P0 = 1013.25; // Corrected P0
                             const liveRawRow = {
-                                'Temperature': dataArr[0],
-                                'Pressure': dataArr[1],
-                                'Voltage': dataArr[2],
-                                'Gyro Roll': dataArr[3],
-                                'Gyro Pitch': dataArr[4],
-                                'Gyro Yaw': dataArr[5],
-                                'Accel Roll': dataArr[6],
-                                'Accel Pitch': dataArr[7],
-                                'Accel Yaw': dataArr[8],
-                                'Auto Rotation 1': dataArr[9],
-                                'Auto Rotation 2': dataArr[10],
+                                'Temperature': values[0],
+                                'Pressure': values[1], // Assuming pressure is sent in Pa
+                                'Voltage': values[2],
+                                'Gyro Roll': values[3],
+                                'Gyro Pitch': values[4],
+                                'Gyro Yaw': values[5],
+                                'Accel Roll': values[6],
+                                'Accel Pitch': values[7],
+                                'Accel Yaw': values[8],
+                                'Auto Rotation 1': values[9],
+                                'Auto Rotation 2': values[10],
                             };
 
                             // Calculate derived raw values
-                            liveRawRow['Altitude'] = (liveRawRow['Pressure'] === null || liveRawRow['Pressure'] <= 0) ? 0 : 44330 * (1 - Math.pow(liveRawRow['Pressure'] / P0, 1 / 5.255));
+                            const pressureHpa = liveRawRow['Pressure'] / 100.0;
+                            liveRawRow['Altitude'] = (pressureHpa === null || pressureHpa <= 0) ? 0 : 44330 * (1 - Math.pow(pressureHpa / P0, 1 / 5.255));
                             liveRawRow['Velocity'] = calculateSingleVelocity(liveRawRow['Altitude']); // Use live velocity calc
 
                             // Calculate filtered values for this point
@@ -1031,32 +1043,35 @@
                     liveModeBtn.classList.add('bg-red-600', 'hover:bg-red-700', 'live-on');
                     client.publish(commandTopic, "1");
                     
-                    // Stop playback if running, clear data
-                    stopPlotting();
-                    currentIndex = 0;
-                    cropPoint = 0;
-                    telemetryData = []; // Clear playback data
-                    filteredTelemetryData = []; // Clear playback data
-                    resetCharts();
+                    stopPlotting(); // Stop playback if running
+                    currentIndex = 0; // Reset playback index
+                    cropPoint = 0; // Reset crop point
+                    telemetryData = []; // Clear playback data arrays
+                    filteredTelemetryData = [];
+                    resetCharts(); // Clear charts visually
                     liveDataCounter = 0; // Reset live counter
                     lastFilteredValues = {}; // Reset EMA state
                     lastRawAltitude = 0; // Reset velocity state
 
-                    // Disable irrelevant controls
-                    [uploadButton, uploadCsvButton, downloadCsvButton, rewindBtn, playPauseBtn, forwardBtn, speedBtn, endBtn, cropBtn, dataModeButton].forEach(btn => btn.disabled = true);
-                    getVideos().forEach(v => v.pause()); // Pause video if playing
+                    // Disable file/playback controls, enable Crop and Mode
+                    [uploadButton, uploadCsvButton, downloadCsvButton, rewindBtn, playPauseBtn, forwardBtn, speedBtn, endBtn].forEach(btn => btn.disabled = true);
+                    [cropBtn, dataModeButton].forEach(btn => btn.disabled = false); // Enable Crop and Mode in Live
+                    getVideos().forEach(v => v.pause()); 
+                    videoUpContainer.innerHTML = '<span>Video disabled in Live Mode</span>'; // Indicate video is off
+                    fullscreenBtn.style.display = 'none';
+
 
                 } else {
                     liveModeBtn.textContent = 'Live : Off';
-                     liveModeBtn.classList.remove('bg-red-600', 'hover:bg-red-700', 'live-on');
-                     liveModeBtn.classList.add('bg-green-600', 'hover:bg-green-700');
-                    client.publish(commandTopic, "2");
+                    liveModeBtn.classList.remove('bg-red-600', 'hover:bg-red-700', 'live-on');
+                    liveModeBtn.classList.add('bg-green-600', 'hover:bg-green-700');
+                    client.publish(commandTopic, "1");
                     
-                    // Re-enable controls (they might still be disabled if no file was loaded before)
+                    // Re-enable file uploads, disable everything else until file load
                     [uploadButton, uploadCsvButton].forEach(btn => btn.disabled = false);
-                    // Buttons remain disabled until a file is loaded again
                     [downloadCsvButton, dataModeButton, rewindBtn, playPauseBtn, forwardBtn, speedBtn, endBtn, cropBtn].forEach(btn => btn.disabled = true);
-                     updateButtonStates(); // Ensure correct enabled/disabled state
+                     videoUpContainer.innerHTML = '<span>Video Player</span>'; // Restore placeholder
+                     resetState(); // Fully reset to initial state after turning live off
                 }
             }
 
@@ -1162,14 +1177,22 @@
                     
                     // Rebuild modal data based on current state (cropPoint, currentIndex)
                     const modalData = { labels: [], datasets: [] };
-                    const startIndex = cropPoint;
-                    const endIndex = currentIndex + cropPoint;
-                     
-                    for(let i = startIndex; i < endIndex; i++) {
-                        modalData.labels.push(i - startIndex); // Relative labels
-                    }
+                     let startIndex, endIndex;
+                     let sourceLabels;
 
-                    originalChart.data.datasets.forEach((originalDs, dsIndex) => {
+                     if (isLiveMode) {
+                         sourceLabels = originalChart.data.labels.slice(); // Copy live labels
+                         startIndex = 0;
+                         endIndex = sourceLabels.length;
+                     } else {
+                         startIndex = cropPoint;
+                         endIndex = currentIndex + cropPoint;
+                         sourceLabels = Array.from({length: currentIndex}, (_, i) => i); // Generate relative labels
+                     }
+
+                    modalData.labels = sourceLabels;
+
+                     originalChart.data.datasets.forEach((originalDs, dsIndex) => {
                          const isRaw = dsIndex % 2 !== 0;
                          const dataArray = isRaw ? telemetryData : filteredTelemetryData;
                          const dataKey = isRaw ? originalDs.label.replace('Raw ', '') : originalDs.label.replace('Filtered ', '');
@@ -1178,7 +1201,12 @@
                          const multiKeyMap = { Roll: 'Gyro Roll', Pitch: 'Gyro Pitch', Yaw: 'Gyro Yaw', X: 'Accel Roll', Y: 'Accel Pitch', Z: 'Accel Yaw', AutoGyro1: 'Auto Rotation 1', AutoGyro2: 'Auto Rotation 2'};
                          let dataFieldName = keyMap[dataKey] || multiKeyMap[dataKey];
 
-                         const slicedData = dataArray.slice(startIndex, endIndex).map(row => row ? row[dataFieldName] : null); // Add safety check for row
+                         let slicedData;
+                          if (isLiveMode) {
+                                slicedData = originalDs.data.slice(); // Use current live data
+                         } else {
+                              slicedData = dataArray.slice(startIndex, endIndex).map(row => row ? row[dataFieldName] : null); // Add safety check for row
+                         }
                         
                          modalData.datasets.push({
                             ...originalDs, // Copy style properties
@@ -1262,11 +1290,12 @@
             document.querySelectorAll('.chart-wrapper').forEach(wrapper => {
                 if (wrapper.querySelector('canvas')) { // Only add click to chart wrappers
                     wrapper.addEventListener('click', () => {
-                        // if(isLiveMode) return; // Don't open modal in live mode
+                        // if(isLiveMode) return; // Allow modal opening even in live mode
 
                         const canvasId = wrapper.querySelector('canvas').id;
                         const originalChart = charts[canvasId.replace('-chart', '')];
-                        if (originalChart && (telemetryData.length > 0 || isLiveMode)) { // Allow modal if live data has arrived
+                        // Allow opening if file data exists OR live mode has started receiving data
+                        if (originalChart && (telemetryData.length > 0 || (isLiveMode && liveDataCounter > 0))) { 
                             if (modalChartInstance) modalChartInstance.destroy();
                             
                             const modalOptions = JSON.parse(JSON.stringify(originalChart.options));
@@ -1285,11 +1314,10 @@
                             // Build modal data based on current state (cropPoint, currentIndex OR live data)
                             const modalData = { labels: [], datasets: [] };
                             
-                            // Determine the data range for the modal
                              let startIndex, endIndex;
                              let sourceLabels;
                              if (isLiveMode) {
-                                 sourceLabels = originalChart.data.labels; // Use labels from live chart
+                                 sourceLabels = originalChart.data.labels.slice(); // Copy live labels
                                  startIndex = 0; // Show all available live data in modal
                                  endIndex = sourceLabels.length;
                              } else {
@@ -1310,7 +1338,7 @@
                                 let dataFieldName = keyMap[dataKey] || multiKeyMap[dataKey];
 
                                 let slicedData;
-                                if (isLiveMode) {
+                                 if (isLiveMode) {
                                     // In live mode, just copy the current data from the main chart
                                     slicedData = originalDs.data.slice(); 
                                 } else {
@@ -1401,5 +1429,4 @@
     </script>
 </body>
 </html>
-
 
