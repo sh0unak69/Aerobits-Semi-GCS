@@ -399,7 +399,7 @@
             // --- End of Kalman Filter ---
 
             // EMA Filter function
-            const alpha = 0.2;
+            const alpha = 0.78;
             function emaFilter(data) {
                 if (!data || data.length === 0) return [];
                 const firstVal = typeof data[0] === 'number' ? data[0] : 0;
@@ -1646,4 +1646,5 @@
     </script>
 </body>
 </html>
+
 
