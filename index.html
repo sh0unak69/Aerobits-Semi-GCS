@@ -220,9 +220,9 @@
                 <div class="chart-wrapper">
                     <canvas id="accel-chart"></canvas>
                     <div class="chart-controls">
-                        <button class="chart-toggle-btn" data-chart="accel" data-dataset="0">X</button>
-                        <button class="chart-toggle-btn" data-chart="accel" data-dataset="1">Y</button>
-                        <button class="chart-toggle-btn" data-chart="accel" data-dataset="2">Z</button>
+                        <button class="chart-toggle-btn" data-chart="accel" data-dataset="0">AccX</button> <!-- Changed Label -->
+                        <button class="chart-toggle-btn" data-chart="accel" data-dataset="1">AccY</button> <!-- Changed Label -->
+                        <button class="chart-toggle-btn" data-chart="accel" data-dataset="2">AccZ</button> <!-- Changed Label -->
                     </div>
                 </div>
                 <div class="chart-wrapper">
@@ -318,6 +318,77 @@
             let lastFilteredValues = {}; // Live Telemetry: Store last filtered values for EMA continuity
             let lastRawAltitude = 0; // Live Telemetry: Store last raw altitude for velocity calculation
             
+            // --- Kalman Filter Implementation ---
+            /**
+             * Creates a 1D Kalman Filter object.
+             * @param {number} Q_std_dev - Standard deviation of the process noise (gyro rate std dev).
+             * @param {number} R_std_dev - Standard deviation of the measurement noise (accelerometer angle std dev).
+             */
+            function KalmanFilter1D(Q_std_dev, R_std_dev) {
+                // Tunable parameters based on user's math
+                this.Ts = 1.0; // Time step (1s)
+                this.Q_variance = Math.pow(Q_std_dev, 2); // Process noise variance (4^2 = 16)
+                this.R_variance = Math.pow(R_std_dev, 2); // Measurement noise variance (3^2 = 9)
+
+                // State variables
+                this.phi = 0; // This is the estimated angle (phi)
+                this.P = 1;   // Initial uncertainty (P) - start with 1
+                
+                /**
+                 * Resets the filter to its initial state.
+                 */
+                this.reset = function() {
+                    this.phi = 0;
+                    this.P = 1;
+                };
+
+                /**
+                 * Updates the filter with new measurements.
+                 * @param {number} gyroRate - The angular velocity (w[k]) from the gyro.
+                 * @param {number} accelAngle - The angle (theta[k]) calculated from the accelerometer.
+                 * @returns {number} The new filtered angle (phi[k]).
+                 */
+                this.update = function(gyroRate, accelAngle) {
+                    // --- 1. Prediction Step ---
+                    
+                    // phi[k] = phi[k-1] + 1*w[k]
+                    // (Predict new angle based on old angle and gyro rate)
+                    let phi_predicted = this.phi + this.Ts * gyroRate;
+                    
+                    // P[k] = P[k-1] + (1^2)*(4^2)
+                    // (Predict new uncertainty: P_old + process_noise)
+                    let P_predicted = this.P + (this.Ts * this.Ts) * this.Q_variance;
+
+                    // --- 2. Update Step ---
+
+                    // L[k] = P[k] + (1^2)*(3^2) - (This is the denominator for K_gain)
+                    // K_gain = P[k]/(P[k] + (1^2)*(3^2))
+                    // (Calculate Kalman Gain)
+                    let K_gain = P_predicted / (P_predicted + this.R_variance);
+
+                    // phi[k] = phi[k] + K_gain(theta[k] - phi[k])
+                    // (Update angle estimate with accelerometer reading)
+                    // This is phi_new = phi_predicted + K * (accel_angle - phi_predicted)
+                    let phi_updated = phi_predicted + K_gain * (accelAngle - phi_predicted);
+
+                    // P[k] = (1-K_gain)*P[k]
+                    // (Update the uncertainty)
+                    let P_updated = (1 - K_gain) * P_predicted;
+
+                    // Store the new state for the next iteration
+                    this.phi = phi_updated;
+                    this.P = P_updated;
+
+                    // Return the new filtered angle
+                    return this.phi;
+                };
+            }
+
+            // Create global instances for Roll and Pitch filters
+            let kalmanRoll = new KalmanFilter1D(4, 3);
+            let kalmanPitch = new KalmanFilter1D(4, 3);
+            // --- End of Kalman Filter ---
+
             // EMA Filter function
             const alpha = 0.2;
             function emaFilter(data) {
@@ -360,6 +431,13 @@
                 lastRawAltitude = newRawAltitude; // Update last altitude
                 return velocity;
             }
+            
+            // Helper to calculate accelerometer angles
+            function getAccelAngles(ax, ay, az) {
+                const theta_roll = Math.atan2(ay, az) * (180 / Math.PI);
+                const theta_pitch = Math.atan2(-ax, Math.sqrt(ay * ay + az * az)) * (180 / Math.PI);
+                return { theta_roll, theta_pitch };
+            }
 
             // Refactored data processing function
             function processAndFilterData(rawCsvData) {
@@ -373,8 +451,14 @@
                     const newRow = { ...rawCsvData[i] };
                     const pressure = newRow['Pressure'];
                      // Convert pressure from Pa to hPa if necessary, assuming CSV is in Pa
-                    const pressureHpa = pressure / 100.0; 
+                    const pressureHpa = pressure / 100.0; // CSV pressure is in Pa
                     newRow['Altitude'] = (pressureHpa === null || pressureHpa <= 0) ? 0 : 44330 * (1 - Math.pow(pressureHpa / P0, 1 / 5.255));
+                    
+                    // Calculate accel angles and add them to raw data row
+                    const { theta_roll, theta_pitch } = getAccelAngles(newRow['AccX'], newRow['AccY'], newRow['AccZ']);
+                    newRow['theta_roll'] = theta_roll;
+                    newRow['theta_pitch'] = theta_pitch;
+
                     rawAltitudes.push(newRow['Altitude']);
                     rawDerivedData.push(newRow); // Store original Pa pressure
                 }
@@ -384,15 +468,20 @@
                 
 
                 // == STEP 2: Create the FILTERED dataset ==
+                // Reset Kalman filters before processing a new file
+                kalmanRoll.reset();
+                kalmanPitch.reset();
+
+                // Columns for EMA filter (ALL gyro rates are now filtered)
                 const columnsToFilter = {
-                    'Pressure': [], 'Altitude': [], 'Velocity': [], 'Temperature': [], 'Voltage': [], // Added Pressure
-                    'Gyro Roll': [], 'Gyro Pitch': [], 'Gyro Yaw': [],
-                    'Accel Roll': [], 'Accel Pitch': [], 'Accel Yaw': [],
+                    'Pressure': [], 'Altitude': [], 'Velocity': [], 'Temperature': [], 'Voltage': [], 
+                    'Gyro Roll': [], 'Gyro Pitch': [], 'Gyro Yaw': [], // ADDED Gyro Roll/Pitch for EMA
+                    'AccX': [], 'AccY': [], 'AccZ': [], 
                     'Auto Rotation 1': [], 'Auto Rotation 2': []
                 };
                 rawDerivedData.forEach(row => {
                     for (const key in columnsToFilter) {
-                        columnsToFilter[key].push(row[key]);
+                        columnsToFilter[key].push(row[key]); 
                     }
                 });
                 
@@ -404,17 +493,30 @@
                 const filteredDerivedData = [];
                 for (let i = 0; i < rawDerivedData.length; i++) {
                     const filteredRow = {};
+                    // Copy all EMA-filtered values
                     for (const key in filteredColumns) {
                         filteredRow[key] = filteredColumns[key][i];
                     }
+                    
+                    // Now, run Kalman filter for Roll and Pitch (but don't plot them)
+                    const rawRow = rawDerivedData[i];
+                    const theta_roll = rawRow['theta_roll'];
+                    const theta_pitch = rawRow['theta_pitch'];
+                    const gyroRollRate = rawRow['Gyro Roll'];
+                    const gyroPitchRate = rawRow['Gyro Pitch'];
+
+                    // Calculate Kalman angles and store them (for tilt animation and console)
+                    filteredRow['KalmanRoll'] = kalmanRoll.update(gyroRollRate, theta_roll);
+                    filteredRow['KalmanPitch'] = kalmanPitch.update(gyroPitchRate, theta_pitch);
+                    
                     filteredDerivedData.push(filteredRow);
                 }
                 
                 // == STEP 3: Add tilt calculation to rawDerivedData using filtered values from STEP 2 ==
                 for (let i = 0; i < rawDerivedData.length; i++) {
                     // Store filtered gyro data for tilt calculation
-                    const gyroX = filteredDerivedData[i]['Gyro Roll'] || 0;
-                    const gyroY = filteredDerivedData[i]['Gyro Pitch'] || 0;
+                    const gyroX = filteredDerivedData[i]['KalmanRoll'] || 0;  // Use filtered Kalman Roll Angle
+                    const gyroY = filteredDerivedData[i]['KalmanPitch'] || 0; // Use filtered Kalman Pitch Angle
                     
                     // Calculate tilt
                     const tilt = Math.sqrt(gyroX * gyroX + gyroY * gyroY);
@@ -457,7 +559,7 @@
                 charts.velocity = createChart(document.getElementById('velocity-chart').getContext('2d'), 'Velocity (m/s)', 'rgba(16, 185, 129, 0.8)');
                 charts.temp = createChart(document.getElementById('temp-chart').getContext('2d'), 'Temperature (°C)', 'rgba(245, 158, 11, 0.8)');
                 charts.gyro = createMultiLineChart(document.getElementById('gyro-chart').getContext('2d'), 'Gyroscope', [{ label: 'Roll', color: '#34D399' },{ label: 'Pitch', color: '#F87171' },{ label: 'Yaw', color: '#60A5FA' }]);
-                charts.accel = createMultiLineChart(document.getElementById('accel-chart').getContext('2d'), 'Accelerometer', [{ label: 'X', color: '#A78BFA' },{ label: 'Y', color: '#FBBF24' },{ label: 'Z', color: '#EC4899' }]);
+                charts.accel = createMultiLineChart(document.getElementById('accel-chart').getContext('2d'), 'Accelerometer', [{ label: 'AccX', color: '#A78BFA' },{ label: 'AccY', color: '#FBBF24' },{ label: 'AccZ', color: '#EC4899' }]); // Changed Labels
                 charts.rotation = createMultiLineChart(document.getElementById('rotation-chart').getContext('2d'), 'Auto Rotation', [{ label: 'AutoGyro1', color: '#2DD4BF' },{ label: 'AutoGyro2', color: '#F472B6' }]);
                 charts.voltage = createChart(document.getElementById('voltage-chart').getContext('2d'), 'Voltage (V)', 'rgba(139, 92, 246, 0.8)'); // Moved Voltage
             };
@@ -513,7 +615,12 @@
 
             const updateButtonStates = () => {
                  // Live Telemetry: Don't update playback buttons if in live mode
-                 if (isLiveMode) return; 
+                 if (isLiveMode) {
+                    // In live mode, only crop and mode buttons should be potentially enabled
+                    cropBtn.disabled = liveDataCounter <= 0; // Can't crop if no data
+                    dataModeButton.disabled = false;
+                    return;
+                 } 
 
                  const currentAbsoluteIndex = currentIndex + cropPoint;
                  rewindBtn.disabled = currentAbsoluteIndex <= 0;
@@ -521,6 +628,7 @@
                  cropBtn.disabled = currentAbsoluteIndex <= 0 || currentAbsoluteIndex >= telemetryData.length; // Can't crop at start or end
                  playPauseBtn.disabled = currentAbsoluteIndex >= telemetryData.length && endBtn.textContent !== 'Replay'; // Disable play if finished unless replay available
                  endBtn.disabled = currentAbsoluteIndex >= telemetryData.length && endBtn.textContent === 'End'; // Disable End if already at end
+                 dataModeButton.disabled = telemetryData.length === 0; // Disable mode if no data
             };
 
 
@@ -560,6 +668,10 @@
                  liveModeBtn.classList.add('bg-green-600', 'hover:bg-green-700');
                  // Ensure upload buttons are enabled when not in live mode after reset
                  [uploadButton, uploadCsvButton].forEach(btn => btn.disabled = false);
+
+                 // Reset Kalman Filters
+                 kalmanRoll.reset();
+                 kalmanPitch.reset();
             };
 
             // File Handling
@@ -647,22 +759,23 @@
                     keys.forEach(key => {
                         // Check if dataset exists before trying to push data
                         if (chart.data.datasets[key.index * 2] && chart.data.datasets[key.index * 2 + 1]) {
-                             chart.data.datasets[key.index * 2].data.push(filteredRow[key.name]);
-                             chart.data.datasets[key.index * 2 + 1].data.push(rawRow[key.name]);
+                             chart.data.datasets[key.index * 2].data.push(filteredRow[key.f_name]);
+                             chart.data.datasets[key.index * 2 + 1].data.push(rawRow[key.r_name]);
                         } else {
                             console.error(`Dataset index ${key.index*2} or ${key.index*2+1} not found for key ${key.name}`);
                         }
                     });
                 };
                 
-                pushData(charts.altitude, [{ name: 'Altitude', index: 0 }]);
-                pushData(charts.pressure, [{ name: 'Pressure', index: 0 }]); // Added Pressure
-                pushData(charts.velocity, [{ name: 'Velocity', index: 0 }]);
-                pushData(charts.temp, [{ name: 'Temperature', index: 0 }]);
-                pushData(charts.voltage, [{ name: 'Voltage', index: 0 }]); // Moved Voltage call
-                pushData(charts.gyro, [{ name: 'Gyro Roll', index: 0 }, { name: 'Gyro Pitch', index: 1 }, { name: 'Gyro Yaw', index: 2 }]);
-                pushData(charts.accel, [{ name: 'Accel Roll', index: 0 }, { name: 'Accel Pitch', index: 1 }, { name: 'Accel Yaw', index: 2 }]);
-                pushData(charts.rotation, [{ name: 'Auto Rotation 1', index: 0 }, { name: 'Auto Rotation 2', index: 1 }]);
+                pushData(charts.altitude, [{ f_name: 'Altitude', r_name: 'Altitude', index: 0 }]);
+                pushData(charts.pressure, [{ f_name: 'Pressure', r_name: 'Pressure', index: 0 }]);
+                pushData(charts.velocity, [{ f_name: 'Velocity', r_name: 'Velocity', index: 0 }]);
+                pushData(charts.temp, [{ f_name: 'Temperature', r_name: 'Temperature', index: 0 }]);
+                pushData(charts.voltage, [{ f_name: 'Voltage', r_name: 'Voltage', index: 0 }]); 
+                // Reverted Gyro chart to plot rates.
+                pushData(charts.gyro, [{ f_name: 'Gyro Roll', r_name: 'Gyro Roll', index: 0 }, { f_name: 'Gyro Pitch', r_name: 'Gyro Pitch', index: 1 }, { f_name: 'Gyro Yaw', r_name: 'Gyro Yaw', index: 2 }]);
+                pushData(charts.accel, [{ f_name: 'AccX', r_name: 'AccX', index: 0 }, { f_name: 'AccY', r_name: 'AccY', index: 1 }, { f_name: 'AccZ', r_name: 'AccZ', index: 2 }]); 
+                pushData(charts.rotation, [{ f_name: 'Auto Rotation 1', r_name: 'Auto Rotation 1', index: 0 }, { f_name: 'Auto Rotation 2', r_name: 'Auto Rotation 2', index: 1 }]);
             };
             
              // Live Telemetry: Function to plot a single live data point
@@ -679,8 +792,8 @@
 
                     keys.forEach(key => {
                         if (chart.data.datasets[key.index * 2] && chart.data.datasets[key.index * 2 + 1]) {
-                             chart.data.datasets[key.index * 2].data.push(filteredRow[key.name]);
-                             chart.data.datasets[key.index * 2 + 1].data.push(rawRow[key.name]);
+                             chart.data.datasets[key.index * 2].data.push(filteredRow[key.f_name]);
+                             chart.data.datasets[key.index * 2 + 1].data.push(rawRow[key.r_name]);
                              // Optional: Limit history length
                              if(chart.data.datasets[key.index * 2].data.length > maxLivePoints) {
                                  chart.data.datasets[key.index * 2].data.shift();
@@ -690,26 +803,30 @@
                     });
                 };
                 
-                pushLiveData(charts.altitude, [{ name: 'Altitude', index: 0 }]);
-                pushLiveData(charts.pressure, [{ name: 'Pressure', index: 0 }]);
-                pushLiveData(charts.velocity, [{ name: 'Velocity', index: 0 }]);
-                pushLiveData(charts.temp, [{ name: 'Temperature', index: 0 }]);
-                pushLiveData(charts.voltage, [{ name: 'Voltage', index: 0 }]);
-                pushLiveData(charts.gyro, [{ name: 'Gyro Roll', index: 0 }, { name: 'Gyro Pitch', index: 1 }, { name: 'Gyro Yaw', index: 2 }]);
-                pushLiveData(charts.accel, [{ name: 'Accel Roll', index: 0 }, { name: 'Accel Pitch', index: 1 }, { name: 'Accel Yaw', index: 2 }]);
-                pushLiveData(charts.rotation, [{ name: 'Auto Rotation 1', index: 0 }, { name: 'Auto Rotation 2', index: 1 }]);
+                pushLiveData(charts.altitude, [{ f_name: 'Altitude', r_name: 'Altitude', index: 0 }]);
+                pushLiveData(charts.pressure, [{ f_name: 'Pressure', r_name: 'Pressure', index: 0 }]);
+                pushLiveData(charts.velocity, [{ f_name: 'Velocity', r_name: 'Velocity', index: 0 }]);
+                pushLiveData(charts.temp, [{ f_name: 'Temperature', r_name: 'Temperature', index: 0 }]);
+                pushLiveData(charts.voltage, [{ f_name: 'Voltage', r_name: 'Voltage', index: 0 }]); 
+                // Reverted Gyro chart to plot rates.
+                pushLiveData(charts.gyro, [{ f_name: 'Gyro Roll', r_name: 'Gyro Roll', index: 0 }, { f_name: 'Gyro Pitch', r_name: 'Gyro Pitch', index: 1 }, { f_name: 'Gyro Yaw', r_name: 'Gyro Yaw', index: 2 }]);
+                pushLiveData(charts.accel, [{ f_name: 'AccX', r_name: 'AccX', index: 0 }, { f_name: 'AccY', r_name: 'AccY', index: 1 }, { f_name: 'AccZ', r_name: 'AccZ', index: 2 }]); 
+                pushLiveData(charts.rotation, [{ f_name: 'Auto Rotation 1', r_name: 'Auto Rotation 1', index: 0 }, { f_name: 'Auto Rotation 2', r_name: 'Auto Rotation 2', index: 1 }]);
 
                  Object.values(charts).forEach(chart => chart.update());
                  updateAllChartModes(); // Ensure mode visibility is correct for live data
 
-                 // Tilt Animation Update
+                 // Tilt Animation Update (still uses Kalman angles)
                 if (tiltIndicator) {
-                    const tiltAngle = Math.sqrt(filteredRow['Gyro Roll']**2 + filteredRow['Gyro Pitch']**2);
-                    const direction = filteredRow['Gyro Roll'] > 0 ? 1 : -1;
+                    const tiltAngle = Math.sqrt(filteredRow['KalmanRoll']**2 + filteredRow['KalmanPitch']**2);
+                    const direction = filteredRow['KalmanRoll'] > 0 ? 1 : -1;
                     // Apply animation directly here for live data
                     tiltIndicator.style.transition = 'transform 0.1s linear'; // Faster transition for live
                     tiltIndicator.style.transform = `rotate(${tiltAngle * direction}deg)`;
                 }
+
+                // Log calculated angles to console
+                console.log(`Kalman Roll: ${filteredRow['KalmanRoll'].toFixed(2)}, Kalman Pitch: ${filteredRow['KalmanPitch'].toFixed(2)}`);
             };
 
 
@@ -732,6 +849,13 @@
                     tiltIndicator.style.transform = `rotate(${tiltAngle * direction}deg)`;
                 }
 
+                // Log calculated angles to console
+                if (filteredTelemetryData[absoluteIndex]) {
+                    const currentFilteredData = filteredTelemetryData[absoluteIndex];
+                    console.log(`Kalman Roll: ${currentFilteredData['KalmanRoll'].toFixed(2)}, Kalman Pitch: ${currentFilteredData['KalmanPitch'].toFixed(2)}`);
+                }
+
+
                 if (modalChartInstance) {
                     const rawRow = telemetryData[absoluteIndex];
                     const filteredRow = filteredTelemetryData[absoluteIndex];
@@ -747,16 +871,31 @@
                         
                          let rawValue, filteredValue;
 
-                         // Updated keyMap to include Pressure
+                         // Updated keyMap/multiKeyMap
                          const keyMap = { 'Altitude (m)': 'Altitude', 'Pressure (Pa)': 'Pressure', 'Velocity (m/s)': 'Velocity', 'Temperature (°C)': 'Temperature', 'Voltage (V)': 'Voltage'};
-                         const multiKeyMap = { Roll: 'Gyro Roll', Pitch: 'Gyro Pitch', Yaw: 'Gyro Yaw', X: 'Accel Roll', Y: 'Accel Pitch', Z: 'Accel Yaw', AutoGyro1: 'Auto Rotation 1', AutoGyro2: 'Auto Rotation 2'};
+                         // Gyro chart plots rates, so multiKeyMap reflects this
+                         const multiKeyMap = { 
+                             Roll: { f: 'Gyro Roll', r: 'Gyro Roll' }, 
+                             Pitch: { f: 'Gyro Pitch', r: 'Gyro Pitch' }, 
+                             Yaw: { f: 'Gyro Yaw', r: 'Gyro Yaw' }, 
+                             AccX: { f: 'AccX', r: 'AccX' }, 
+                             AccY: { f: 'AccY', r: 'AccY' }, 
+                             AccZ: { f: 'AccZ', r: 'AccZ' }, 
+                             AutoGyro1: { f: 'Auto Rotation 1', r: 'Auto Rotation 1' }, 
+                             AutoGyro2: { f: 'Auto Rotation 2', r: 'Auto Rotation 2' }
+                         };
+                         let dataFieldName;
+                         let sourceDataArray;
 
                          if (keyMap[key]) {
-                             rawValue = rawRow[keyMap[key]];
-                             filteredValue = filteredRow[keyMap[key]];
+                             dataFieldName = keyMap[key];
+                             sourceDataArray = isRaw ? telemetryData[absoluteIndex] : filteredTelemetryData[absoluteIndex];
+                             rawValue = rawRow[dataFieldName];
+                             filteredValue = filteredRow[dataFieldName];
                          } else if (multiKeyMap[key]) {
-                             rawValue = rawRow[multiKeyMap[key]];
-                             filteredValue = filteredRow[multiKeyMap[key]];
+                             const fieldName = multiKeyMap[key].f; // f_name and r_name are the same now
+                             rawValue = rawRow[fieldName];
+                             filteredValue = filteredRow[fieldName];
                          }
                         
                          filteredDs.data.push(filteredValue);
@@ -899,6 +1038,8 @@
                      liveDataCounter = 0;
                      lastFilteredValues = {};
                      lastRawAltitude = 0;
+                     kalmanRoll.reset(); // Reset kalman filters
+                     kalmanPitch.reset();
                      console.log("Live data view cleared.");
                  } else {
                     // File Playback Mode: Set crop point
@@ -977,38 +1118,47 @@
                 if (topic === dataTopic && isLiveMode) {
                     try {
                         const messageString = message.toString();
-                        const values = messageString.split(',').map(Number); // [Temp, Press, Volt, gyro r, p, y, acc r,p,y, auto rot 1, auto rot 2]
+                        const values = messageString.split(',').map(Number); // [Temp, Press(Pa), Volt, gyro r, p, y, accX,Y,Z, auto rot 1, auto rot 2]
                         
                         if (values.length >= 11) {
-                            const P0 = 1013.25; // Corrected P0
+                            const P0 = 1013.25; // Corrected P0 (hPa)
                             const liveRawRow = {
                                 'Temperature': values[0],
-                                'Pressure': values[1], // Assuming pressure is sent in Pa
+                                'Pressure': values[1], // Pressure in Pa
                                 'Voltage': values[2],
                                 'Gyro Roll': values[3],
                                 'Gyro Pitch': values[4],
                                 'Gyro Yaw': values[5],
-                                'Accel Roll': values[6],
-                                'Accel Pitch': values[7],
-                                'Accel Yaw': values[8],
+                                'AccX': values[6], // Changed key
+                                'AccY': values[7], // Changed key
+                                'AccZ': values[8], // Changed key
                                 'Auto Rotation 1': values[9],
                                 'Auto Rotation 2': values[10],
                             };
 
-                            // Calculate derived raw values          
-                            const pressureHpa = liveRawRow['Pressure'] / 1.0;
-                            liveRawRow['Altitude'] = (pressureHpa === null || pressureHpa <= 0) ? 0 : 44330 * (1 - Math.pow(liveRawRow['Pressure'] / P0, 1 / 5.255));
+                            // Calculate derived raw values
+                            const pressureHpa = liveRawRow['Pressure'] / 100.0; // Convert Pa to hPa for calculation
+                            liveRawRow['Altitude'] = (pressureHpa === null || pressureHpa <= 0) ? 0 : 44330 * (1 - Math.pow(pressureHpa / P0, 1 / 5.255));
                             liveRawRow['Velocity'] = calculateSingleVelocity(liveRawRow['Altitude']); // Use live velocity calc
+                            const { theta_roll, theta_pitch } = getAccelAngles(liveRawRow['AccX'], liveRawRow['AccY'], liveRawRow['AccZ']);
+                            liveRawRow['theta_roll'] = theta_roll;
+                            liveRawRow['theta_pitch'] = theta_pitch;
 
                             // Calculate filtered values for this point
                             const liveFilteredRow = {};
-                            const keysToFilter = ['Pressure', 'Altitude', 'Velocity', 'Temperature', 'Voltage', 'Gyro Roll', 'Gyro Pitch', 'Gyro Yaw', 'Accel Roll', 'Accel Pitch', 'Accel Yaw', 'Auto Rotation 1', 'Auto Rotation 2'];
+                             // Updated keysToFilter
+                            const keysToFilter = ['Pressure', 'Altitude', 'Velocity', 'Temperature', 'Voltage', 'Gyro Roll', 'Gyro Pitch', 'Gyro Yaw', 'AccX', 'AccY', 'AccZ', 'Auto Rotation 1', 'Auto Rotation 2'];
                             keysToFilter.forEach(key => {
                                  liveFilteredRow[key] = emaFilterSinglePoint(key, liveRawRow[key]);
                             });
+                            
+                            // Live Kalman Filter Update
+                            liveFilteredRow['KalmanRoll'] = kalmanRoll.update(liveRawRow['Gyro Roll'], liveRawRow['theta_roll']);
+                            liveFilteredRow['KalmanPitch'] = kalmanPitch.update(liveRawRow['Gyro Pitch'], liveRawRow['theta_pitch']);
+
                              // Calculate tilt based on filtered live values
-                            const gyroX_f = liveFilteredRow['Gyro Roll'] || 0;
-                            const gyroY_f = liveFilteredRow['Gyro Pitch'] || 0;
+                            const gyroX_f = liveFilteredRow['KalmanRoll'] || 0;
+                            const gyroY_f = liveFilteredRow['KalmanPitch'] || 0;
                             liveFilteredRow.tilt = Math.sqrt(gyroX_f**2 + gyroY_f**2);
                             liveFilteredRow.gyroX_direction = gyroX_f;
 
@@ -1052,6 +1202,8 @@
                     liveDataCounter = 0; // Reset live counter
                     lastFilteredValues = {}; // Reset EMA state
                     lastRawAltitude = 0; // Reset velocity state
+                    kalmanRoll.reset(); // Reset kalman filters
+                    kalmanPitch.reset();
 
                     // Disable file/playback controls, enable Crop and Mode
                     [uploadButton, uploadCsvButton, downloadCsvButton, rewindBtn, playPauseBtn, forwardBtn, speedBtn, endBtn].forEach(btn => btn.disabled = true);
@@ -1071,7 +1223,7 @@
                     [uploadButton, uploadCsvButton].forEach(btn => btn.disabled = false);
                     [downloadCsvButton, dataModeButton, rewindBtn, playPauseBtn, forwardBtn, speedBtn, endBtn, cropBtn].forEach(btn => btn.disabled = true);
                      videoUpContainer.innerHTML = '<span>Video Player</span>'; // Restore placeholder
-                     resetState(); // Fully reset to initial state after turning live off
+                     resetState(); // Fully reset to initial state after turning live off (will re-enable upload buttons)
                 }
             }
 
@@ -1118,11 +1270,11 @@
 
                 let dataToDownload;
                 let downloadOptions = {};
-                // Updated downloadKeys to include Pressure
+                // Updated downloadKeys to include Pressure & AccX/Y/Z
                 const downloadKeys = [
                     'Altitude', 'Pressure', 'Velocity', 'Temperature', 'Voltage',
                     'Gyro Roll', 'Gyro Pitch', 'Gyro Yaw',
-                    'Accel Roll', 'Accel Pitch', 'Accel Yaw',
+                    'AccX', 'AccY', 'AccZ', // Changed keys
                     'Auto Rotation 1', 'Auto Rotation 2'
                 ];
                 
@@ -1197,15 +1349,34 @@
                          const dataArray = isRaw ? telemetryData : filteredTelemetryData;
                          const dataKey = isRaw ? originalDs.label.replace('Raw ', '') : originalDs.label.replace('Filtered ', '');
                          
+                         // Updated keyMap/multiKeyMap
                          const keyMap = { 'Altitude (m)': 'Altitude', 'Pressure (Pa)': 'Pressure', 'Velocity (m/s)': 'Velocity', 'Temperature (°C)': 'Temperature', 'Voltage (V)': 'Voltage'};
-                         const multiKeyMap = { Roll: 'Gyro Roll', Pitch: 'Gyro Pitch', Yaw: 'Gyro Yaw', X: 'Accel Roll', Y: 'Accel Pitch', Z: 'Accel Yaw', AutoGyro1: 'Auto Rotation 1', AutoGyro2: 'Auto Rotation 2'};
-                         let dataFieldName = keyMap[dataKey] || multiKeyMap[dataKey];
+                         const multiKeyMap = { 
+                             Roll: { f: 'Gyro Roll', r: 'Gyro Roll' }, // Reverted: Plot rates
+                             Pitch: { f: 'Gyro Pitch', r: 'Gyro Pitch' }, // Reverted: Plot rates
+                             Yaw: { f: 'Gyro Yaw', r: 'Gyro Yaw' }, 
+                             AccX: { f: 'AccX', r: 'AccX' }, 
+                             AccY: { f: 'AccY', r: 'AccY' }, 
+                             AccZ: { f: 'AccZ', r: 'AccZ' }, 
+                             AutoGyro1: { f: 'Auto Rotation 1', r: 'Auto Rotation 1' }, 
+                             AutoGyro2: { f: 'Auto Rotation 2', r: 'Auto Rotation 2' }
+                         };
+                         let dataFieldName;
+                         let sourceDataArray;
+
+                         if (keyMap[dataKey]) {
+                             dataFieldName = keyMap[dataKey];
+                             sourceDataArray = dataArray;
+                         } else if (multiKeyMap[dataKey]) {
+                             dataFieldName = isRaw ? multiKeyMap[dataKey].r : multiKeyMap[dataKey].f;
+                             sourceDataArray = isRaw ? telemetryData : filteredTelemetryData; // Raw data from telemetryData, Filtered from filteredTelemetryData
+                         }
 
                          let slicedData;
                           if (isLiveMode) {
                                 slicedData = originalDs.data.slice(); // Use current live data
                          } else {
-                              slicedData = dataArray.slice(startIndex, endIndex).map(row => row ? row[dataFieldName] : null); // Add safety check for row
+                              slicedData = sourceDataArray.slice(startIndex, endIndex).map(row => row ? row[dataFieldName] : null); // Add safety check for row
                          }
                         
                          modalData.datasets.push({
@@ -1333,16 +1504,36 @@
                                 const dataArray = isRaw ? telemetryData : filteredTelemetryData;
                                 const dataKey = isRaw ? originalDs.label.replace('Raw ', '') : originalDs.label.replace('Filtered ', '');
                                 
+                                // Updated keyMap/multiKeyMap
                                 const keyMap = { 'Altitude (m)': 'Altitude', 'Pressure (Pa)': 'Pressure', 'Velocity (m/s)': 'Velocity', 'Temperature (°C)': 'Temperature', 'Voltage (V)': 'Voltage'};
-                                const multiKeyMap = { Roll: 'Gyro Roll', Pitch: 'Gyro Pitch', Yaw: 'Gyro Yaw', X: 'Accel Roll', Y: 'Accel Pitch', Z: 'Accel Yaw', AutoGyro1: 'Auto Rotation 1', AutoGyro2: 'Auto Rotation 2'};
-                                let dataFieldName = keyMap[dataKey] || multiKeyMap[dataKey];
+                                const multiKeyMap = { 
+                                    Roll: { f: 'Gyro Roll', r: 'Gyro Roll' }, // Reverted: Plot rates
+                                    Pitch: { f: 'Gyro Pitch', r: 'Gyro Pitch' }, // Reverted: Plot rates
+                                    Yaw: { f: 'Gyro Yaw', r: 'Gyro Yaw' }, 
+                                    AccX: { f: 'AccX', r: 'AccX' }, 
+                                    AccY: { f: 'AccY', r: 'AccY' }, 
+                                    AccZ: { f: 'AccZ', r: 'AccZ' }, 
+                                    AutoGyro1: { f: 'Auto Rotation 1', r: 'Auto Rotation 1' }, 
+                                    AutoGyro2: { f: 'Auto Rotation 2', r: 'Auto Rotation 2' }
+                                };
+                                let dataFieldName;
+                                let sourceDataArray;
+
+                                if (keyMap[dataKey]) {
+                                    dataFieldName = keyMap[dataKey];
+                                    sourceDataArray = dataArray;
+                                } else if (multiKeyMap[dataKey]) {
+                                    dataFieldName = isRaw ? multiKeyMap[dataKey].r : multiKeyMap[dataKey].f;
+                                    sourceDataArray = isRaw ? telemetryData : filteredTelemetryData; // Raw data from telemetryData, Filtered from filteredTelemetryData
+                                }
+
 
                                 let slicedData;
                                  if (isLiveMode) {
                                     // In live mode, just copy the current data from the main chart
                                     slicedData = originalDs.data.slice(); 
                                 } else {
-                                     slicedData = dataArray.slice(startIndex, endIndex).map(row => row ? row[dataFieldName] : null); // Add safety check for row
+                                     slicedData = sourceDataArray.slice(startIndex, endIndex).map(row => row ? row[dataFieldName] : null); // Add safety check for row
                                 }
                                 
                                 modalData.datasets.push({
@@ -1429,6 +1620,4 @@
     </script>
 </body>
 </html>
-
-
 
