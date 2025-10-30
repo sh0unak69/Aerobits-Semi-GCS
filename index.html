@@ -460,7 +460,7 @@
                     const newRow = { ...rawCsvData[i] };
                     const pressure = newRow['Pressure'];
                      // Convert pressure from Pa to hPa if necessary, assuming CSV is in Pa
-                    const pressureHpa = pressure / 100.0; // CSV pressure is in Pa
+                    const pressureHpa = pressure; // CSV pressure is in Pa
                     newRow['Altitude'] = (pressureHpa === null || pressureHpa <= 0) ? 0 : 44330 * (1 - Math.pow(pressureHpa / P0, 1 / 5.255));
                     
                     // Calculate accel angles and add them to raw data row
@@ -1163,7 +1163,7 @@
                             };
 
                             // Calculate derived raw values
-                            const pressureHpa = liveRawRow['Pressure'] / 100.0; // Convert Pa to hPa for calculation
+                            const pressureHpa = liveRawRow['Pressure']; // Convert Pa to hPa for calculation
                             liveRawRow['Altitude'] = (pressureHpa === null || pressureHpa <= 0) ? 0 : 44330 * (1 - Math.pow(pressureHpa / P0, 1 / 5.255));
                             liveRawRow['Velocity'] = calculateSingleVelocity(liveRawRow['Altitude']); // Use live velocity calc
                             const { theta_roll, theta_pitch } = getAccelAngles(liveRawRow['AccX'], liveRawRow['AccY'], liveRawRow['AccZ']);
@@ -1646,5 +1646,6 @@
     </script>
 </body>
 </html>
+
 
 
