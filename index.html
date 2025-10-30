@@ -94,6 +94,7 @@
              justify-content: center;
              align-items: center;
              padding: 0.5rem;
+             position: relative; /* Added for positioning readouts */
         }
         /* Grid for charts */
         .charts-grid {
@@ -193,6 +194,12 @@
             </div>
              <!-- Tilt Animation moved here -->
             <div class="tilt-container">
+                 <!-- Angle Readouts -->
+                 <div class="absolute top-2 right-2 text-right text-xs text-gray-400">
+                    <p id="roll-readout">Roll: 0.00°</p>
+                    <p id="pitch-readout">Pitch: 0.00°</p>
+                </div>
+                <!-- Tilt Bar -->
                  <div class="w-4 h-4/5 bg-blue-500 rounded" id="tilt-indicator"></div>
             </div>
         </div>
@@ -283,6 +290,8 @@
             const videoUpContainer = document.getElementById('video-up-container');
             const tiltIndicator = document.getElementById('tilt-indicator');
             const fullscreenBtn = document.getElementById('fullscreen-btn'); // Get fullscreen button
+            const rollReadout = document.getElementById('roll-readout'); // Get readout element
+            const pitchReadout = document.getElementById('pitch-readout'); // Get readout element
             
             // Playback control buttons
             const rewindBtn = document.getElementById('rewind-btn');
@@ -650,6 +659,8 @@
                 videoUpContainer.innerHTML = '<span>Video Player</span>'; // Updated placeholder
                 fullscreenBtn.style.display = 'none'; // Hide fullscreen button
                 if(tiltIndicator) tiltIndicator.style.transform = 'rotate(0deg)';
+                rollReadout.textContent = 'Roll: 0.00°'; // Reset readout
+                pitchReadout.textContent = 'Pitch: 0.00°'; // Reset readout
                 
                  // Only disable playback controls on reset, keep blink enabled
                 [rewindBtn, playPauseBtn, forwardBtn, speedBtn, endBtn].forEach(btn => btn.disabled = true); 
@@ -825,8 +836,12 @@
                     tiltIndicator.style.transform = `rotate(${tiltAngle * direction}deg)`;
                 }
 
-                // Log calculated angles to console
-                console.log(`Kalman Roll: ${filteredRow['KalmanRoll'].toFixed(2)}, Kalman Pitch: ${filteredRow['KalmanPitch'].toFixed(2)}`);
+                // Log calculated angles to console AND update readouts
+                const kalmanRollAngle = filteredRow['KalmanRoll'];
+                const kalmanPitchAngle = filteredRow['KalmanPitch'];
+                console.log(`Kalman Roll: ${kalmanRollAngle.toFixed(2)}, Kalman Pitch: ${kalmanPitchAngle.toFixed(2)}`);
+                rollReadout.textContent = `Roll: ${kalmanRollAngle.toFixed(2)}°`;
+                pitchReadout.textContent = `Pitch: ${kalmanPitchAngle.toFixed(2)}°`;
             };
 
 
@@ -849,10 +864,14 @@
                     tiltIndicator.style.transform = `rotate(${tiltAngle * direction}deg)`;
                 }
 
-                // Log calculated angles to console
+                // Log calculated angles to console AND update readouts
                 if (filteredTelemetryData[absoluteIndex]) {
                     const currentFilteredData = filteredTelemetryData[absoluteIndex];
-                    console.log(`Kalman Roll: ${currentFilteredData['KalmanRoll'].toFixed(2)}, Kalman Pitch: ${currentFilteredData['KalmanPitch'].toFixed(2)}`);
+                    const kalmanRollAngle = currentFilteredData['KalmanRoll'];
+                    const kalmanPitchAngle = currentFilteredData['KalmanPitch'];
+                    console.log(`Kalman Roll: ${kalmanRollAngle.toFixed(2)}, Kalman Pitch: ${kalmanPitchAngle.toFixed(2)}`);
+                    rollReadout.textContent = `Roll: ${kalmanRollAngle.toFixed(2)}°`;
+                    pitchReadout.textContent = `Pitch: ${kalmanPitchAngle.toFixed(2)}°`;
                 }
 
 
@@ -1064,12 +1083,19 @@
                     if (!wasPaused) {
                        togglePlayPause();
                     } else {
-                         // If paused, update the tilt indicator to the new starting position
-                         if (tiltIndicator && telemetryData[cropPoint]) {
+                         // If paused, update the tilt indicator AND readouts to the new starting position
+                        if (tiltIndicator && telemetryData[cropPoint] && filteredTelemetryData[cropPoint]) { 
                             const firstRawData = telemetryData[cropPoint];
+                            const firstFilteredData = filteredTelemetryData[cropPoint]; 
                             const tiltAngle = firstRawData.tilt;
                             const direction = firstRawData.gyroX_direction > 0 ? 1 : -1;
                             tiltIndicator.style.transform = `rotate(${tiltAngle * direction}deg)`;
+                            
+                            // Update readouts to the new start point
+                            const kalmanRollAngle = firstFilteredData['KalmanRoll']; 
+                            const kalmanPitchAngle = firstFilteredData['KalmanPitch']; 
+                            rollReadout.textContent = `Roll: ${kalmanRollAngle.toFixed(2)}°`; 
+                            pitchReadout.textContent = `Pitch: ${kalmanPitchAngle.toFixed(2)}°`; 
                         }
                     }
                 }
