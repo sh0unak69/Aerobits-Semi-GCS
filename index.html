@@ -319,6 +319,7 @@
             let filteredTelemetryData = []; // Holds filtered data
             let currentIndex = 0; // Current index relative to the cropPoint
             let cropPoint = 0; // The original index where the last crop occurred
+            let P0 = null; // Pressure at sea level (or first reading)
             let isPaused = true;
             let playbackSpeed = 1;
             let dataDisplayMode = 'filtered'; // 'filtered', 'raw', 'compare'
@@ -399,7 +400,7 @@
             // --- End of Kalman Filter ---
 
             // EMA Filter function
-            const alpha = 0.78;
+            const alpha = 0.2;
             function emaFilter(data) {
                 if (!data || data.length === 0) return [];
                 const firstVal = typeof data[0] === 'number' ? data[0] : 0;
@@ -443,24 +444,44 @@
             
             // Helper to calculate accelerometer angles
             function getAccelAngles(ax, ay, az) {
+                // Sanitize inputs for this function specifically
+                ax = Number(ax) || 0;
+                ay = Number(ay) || 0;
+                az = Number(az) || 0;
                 const theta_roll = Math.atan2(ay, az) * (180 / Math.PI);
                 const theta_pitch = Math.atan2(-ax, Math.sqrt(ay * ay + az * az)) * (180 / Math.PI);
                 return { theta_roll, theta_pitch };
             }
 
             // Refactored data processing function
-            function processAndFilterData(rawCsvData) {
+            function processAndFilterData(rawCsvData, P0) { // Accept P0
                 if (!rawCsvData || rawCsvData.length === 0) return { raw: [], filtered: [] };
-                const P0 = 1013.25; // Corrected P0 value (hPa)
+                // const P0 = 1013.25; // Removed global constant
 
                 // == STEP 1: Create the RAW dataset with derived values ==
                 const rawDerivedData = [];
                 const rawAltitudes = [];
                 for (let i = 0; i < rawCsvData.length; i++) {
                     const newRow = { ...rawCsvData[i] };
+                    
+                    // --- SANITIZATION ---
+                    // Ensure all critical values are numbers, default to 0 if not.
+                    newRow['Pressure'] = Number(newRow['Pressure']) || 0;
+                    newRow['AccX'] = Number(newRow['AccX']) || 0;
+                    newRow['AccY'] = Number(newRow['AccY']) || 0;
+                    newRow['AccZ'] = Number(newRow['AccZ']) || 0;
+                    newRow['Gyro Roll'] = Number(newRow['Gyro Roll']) || 0;
+                    newRow['Gyro Pitch'] = Number(newRow['Gyro Pitch']) || 0;
+                    newRow['Gyro Yaw'] = Number(newRow['Gyro Yaw']) || 0;
+                    newRow['Temperature'] = Number(newRow['Temperature']) || 0;
+                    newRow['Voltage'] = Number(newRow['Voltage']) || 0;
+                    newRow['Auto Rotation 1'] = Number(newRow['Auto Rotation 1']) || 0;
+                    newRow['Auto Rotation 2'] = Number(newRow['Auto Rotation 2']) || 0;
+                    // --- END SANITIZATION ---
+
                     const pressure = newRow['Pressure'];
                      // Convert pressure from Pa to hPa if necessary, assuming CSV is in Pa
-                    const pressureHpa = pressure; // CSV pressure is in Pa
+                    const pressureHpa = pressure / 100.0; // CSV pressure is in Pa
                     newRow['Altitude'] = (pressureHpa === null || pressureHpa <= 0) ? 0 : 44330 * (1 - Math.pow(pressureHpa / P0, 1 / 5.255));
                     
                     // Calculate accel angles and add them to raw data row
@@ -646,6 +667,7 @@
                 telemetryData = [];
                 filteredTelemetryData = [];
                 cropPoint = 0; // Reset crop point
+                P0 = null; // Reset P0
                 
                 // Live Telemetry: Reset Live Mode specific state
                 isLiveMode = false; 
@@ -741,9 +763,16 @@
                     header: true, dynamicTyping: true, skipEmptyLines: true,
                     complete: (results) => {
                         const rawCsvData = results.data;
-                        const { raw, filtered } = processAndFilterData(rawCsvData);
+                        
+                        // Set P0 based on the first valid pressure reading
+                        const firstValidPressureRow = rawCsvData.find(row => row && (Number(row['Pressure']) || 0) > 0);
+                        P0 = firstValidPressureRow ? (Number(firstValidPressureRow['Pressure']) / 100.0) : 1013.25; // Set P0 in hPa
+                        console.log("P0 set for file to:", P0);
+                        
+                        const { raw, filtered } = processAndFilterData(rawCsvData, P0); // Pass P0
                         telemetryData = raw;
                         filteredTelemetryData = filtered;
+                        
                         [downloadCsvButton, dataModeButton].forEach(btn => btn.disabled = false);
                         // Enable playback controls and Crop
                         [rewindBtn, playPauseBtn, forwardBtn, speedBtn, endBtn, cropBtn].forEach(btn => btn.disabled = false); 
@@ -1059,6 +1088,7 @@
                      lastRawAltitude = 0;
                      kalmanRoll.reset(); // Reset kalman filters
                      kalmanPitch.reset();
+                     P0 = null; // Reset P0 for live data
                      console.log("Live data view cleared.");
                  } else {
                     // File Playback Mode: Set crop point
@@ -1147,23 +1177,34 @@
                         const values = messageString.split(',').map(Number); // [Temp, Press(Pa), Volt, gyro r, p, y, accX,Y,Z, auto rot 1, auto rot 2]
                         
                         if (values.length >= 11) {
-                            const P0 = 1013.25; // Corrected P0 (hPa)
+                            // const P0 = 1013.25; // Corrected P0 (hPa)
+                            
+                            // --- SANITIZATION for Live Data ---
                             const liveRawRow = {
-                                'Temperature': values[0],
-                                'Pressure': values[1], // Pressure in Pa
-                                'Voltage': values[2],
-                                'Gyro Roll': values[3],
-                                'Gyro Pitch': values[4],
-                                'Gyro Yaw': values[5],
-                                'AccX': values[6], // Changed key
-                                'AccY': values[7], // Changed key
-                                'AccZ': values[8], // Changed key
-                                'Auto Rotation 1': values[9],
-                                'Auto Rotation 2': values[10],
+                                'Temperature': Number(values[0]) || 0,
+                                'Pressure': Number(values[1]) || 0, // Pressure in Pa
+                                'Voltage': Number(values[2]) || 0,
+                                'Gyro Roll': Number(values[3]) || 0,
+                                'Gyro Pitch': Number(values[4]) || 0,
+                                'Gyro Yaw': Number(values[5]) || 0,
+                                'AccX': Number(values[6]) || 0, 
+                                'AccY': Number(values[7]) || 0, 
+                                'AccZ': Number(values[8]) || 0, 
+                                'Auto Rotation 1': Number(values[9]) || 0,
+                                'Auto Rotation 2': Number(values[10]) || 0,
                             };
+                            // --- END SANITIZATION ---
 
                             // Calculate derived raw values
-                            const pressureHpa = liveRawRow['Pressure']; // Convert Pa to hPa for calculation
+                            const pressurePa = liveRawRow['Pressure'];
+                            const pressureHpa = pressurePa / 100.0; // Convert Pa to hPa for calculation
+                            
+                            // Set P0 on the very first valid live packet
+                            if (P0 === null) {
+                                P0 = (pressureHpa > 0) ? pressureHpa : 1013.25; 
+                                console.log("P0 set for live data to:", P0);
+                            }
+
                             liveRawRow['Altitude'] = (pressureHpa === null || pressureHpa <= 0) ? 0 : 44330 * (1 - Math.pow(pressureHpa / P0, 1 / 5.255));
                             liveRawRow['Velocity'] = calculateSingleVelocity(liveRawRow['Altitude']); // Use live velocity calc
                             const { theta_roll, theta_pitch } = getAccelAngles(liveRawRow['AccX'], liveRawRow['AccY'], liveRawRow['AccZ']);
@@ -1230,6 +1271,7 @@
                     lastRawAltitude = 0; // Reset velocity state
                     kalmanRoll.reset(); // Reset kalman filters
                     kalmanPitch.reset();
+                    P0 = null; // Reset P0 for live data
 
                     // Disable file/playback controls, enable Crop and Mode
                     [uploadButton, uploadCsvButton, downloadCsvButton, rewindBtn, playPauseBtn, forwardBtn, speedBtn, endBtn].forEach(btn => btn.disabled = true);
@@ -1646,6 +1688,3 @@
     </script>
 </body>
 </html>
-
-
-
